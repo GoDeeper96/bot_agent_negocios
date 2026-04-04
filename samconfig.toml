@@ -5,8 +5,7 @@ stack_name = "bot-agent-dev"
 region = "us-west-2"
 resolve_s3 = true
 capabilities = "CAPABILITY_NAMED_IAM"
-confirm_changeset = true
-profile = "eyatech"
+confirm_changeset = false
 parameter_overrides = "Stage=dev"
 
 [prod.deploy.parameters]
@@ -14,6 +13,5 @@ stack_name = "bot-agent-prod"
 region = "us-west-2"
 resolve_s3 = true
 capabilities = "CAPABILITY_NAMED_IAM"
-confirm_changeset = true
-profile = "eyatech"
+confirm_changeset = false
 parameter_overrides = "Stage=prod"
