@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import time
+from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -22,10 +23,22 @@ logger = logging.getLogger(__name__)
 SESSION_TTL_SECONDS = 30 * 60  # 30 minutes
 
 
+def _to_decimal(obj):
+    """Recursively convert floats to Decimal for DynamoDB compatibility."""
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, dict):
+        return {k: _to_decimal(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_to_decimal(v) for v in obj]
+    return obj
+
+
 class Session:
     def __init__(self, phone_number: str, data: dict):
         self.phone_number = phone_number
         self.state = data.get('state', 'idle')
+        self.doc_type = data.get('doc_type')           # 'factura' | 'cotizacion' | 'guia'
         self.messages = data.get('messages', [])       # raw texts accumulated
         self.extracted = data.get('extracted', {})     # Claude's last extraction
         self.pending_sale = data.get('pending_sale', {})  # sale data ready to submit
@@ -42,6 +55,7 @@ class Session:
     def to_dict(self) -> dict:
         return {
             'state': self.state,
+            'doc_type': self.doc_type,
             'messages': self.messages,
             'extracted': self.extracted,
             'pending_sale': self.pending_sale,
@@ -67,8 +81,9 @@ class SessionManager:
             'ttl': int(time.time()) + SESSION_TTL_SECONDS,
             **session.to_dict(),
         }
-        # DynamoDB can't store None values
+        # DynamoDB can't store None values or floats
         item = {k: v for k, v in item.items() if v is not None}
+        item = _to_decimal(item)
         self._table.put_item(Item=item)
 
     def clear(self, phone_number: str):

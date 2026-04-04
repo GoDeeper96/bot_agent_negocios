@@ -96,8 +96,17 @@ def handler(event, context):
 # Dispatcher
 # ---------------------------------------------------------------------------
 
-_CONFIRM_WORDS = {'si', 'sí', 'yes', 'confirmar', 'ok', 'dale', '1', 'enviar'}
-_CANCEL_WORDS = {'no', 'cancelar', 'cancel', 'nope', '2'}
+_CONFIRM_WORDS = {'si', 'sí', 'yes', 'confirmar', 'ok', 'dale', 'enviar'}
+_CANCEL_WORDS  = {'no', 'cancelar', 'cancel', 'nope', '0'}
+_MENU_OPTIONS  = {'1': 'factura', '2': 'cotizacion', '3': 'guia'}
+
+MENU_TEXT = (
+    "Hola 👋 ¿Qué deseas crear?\n\n"
+    "1️⃣  Factura\n"
+    "2️⃣  Cotización\n"
+    "3️⃣  Guía de Remisión\n\n"
+    "Responde con el número o envía directamente los datos."
+)
 
 
 def _dispatch(phone, text, session, sessions, wa, config):
@@ -109,8 +118,31 @@ def _dispatch(phone, text, session, sessions, wa, config):
         wa.send_text(phone, "Operación cancelada. ¿En qué más te puedo ayudar?")
         return
 
-    if session.state == 'idle' or session.state == 'collecting':
-        _handle_collecting(phone, text, session, sessions, wa, config)
+    # Idle: show menu or detect doc type from first message
+    if session.state == 'idle':
+        if text_lower in _MENU_OPTIONS:
+            session.doc_type = _MENU_OPTIONS[text_lower]
+            session.state = 'collecting'
+            sessions.save(session)
+            wa.send_text(phone, f"*{session.doc_type.capitalize()}* seleccionada ✅\nEnvíame los datos del cliente y productos.")
+        else:
+            # Dad sent data directly — show menu but also start collecting
+            session.state = 'collecting'
+            session.add_message(text)
+            sessions.save(session)
+            wa.send_text(phone, MENU_TEXT)
+        return
+
+    if session.state == 'collecting':
+        # If they reply with a menu number now, set doc type
+        if text_lower in _MENU_OPTIONS:
+            session.doc_type = _MENU_OPTIONS[text_lower]
+            sessions.save(session)
+            wa.send_text(phone, f"*{session.doc_type.capitalize()}* seleccionada ✅")
+            # Re-run extraction with doc_type now known
+            _handle_collecting(phone, None, session, sessions, wa, config)
+        else:
+            _handle_collecting(phone, text, session, sessions, wa, config)
 
     elif session.state == 'confirming':
         if text_lower in _CONFIRM_WORDS:
@@ -132,13 +164,14 @@ def _dispatch(phone, text, session, sessions, wa, config):
 # ---------------------------------------------------------------------------
 
 def _handle_collecting(phone, text, session, sessions, wa, config):
-    session.add_message(text)
+    if text:
+        session.add_message(text)
     session.state = 'collecting'
 
     gemini = GeminiClient(config['gemini_api_key'])
 
     try:
-        extracted = gemini.extract_invoice_data(session.messages)
+        extracted = gemini.extract_invoice_data(session.messages, doc_type=session.doc_type)
     except Exception as e:
         logger.error(f"Gemini extraction failed: {e}")
         wa.send_text(phone, "No pude entender el mensaje. ¿Puedes darme más detalles?")

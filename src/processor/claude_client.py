@@ -73,13 +73,14 @@ class GeminiClient:
     def __init__(self, api_key: str):
         self._client = genai.Client(api_key=api_key)
 
-    def extract_invoice_data(self, messages: list) -> dict:
+    def extract_invoice_data(self, messages: list, doc_type: str = None) -> dict:
         """
         Extract structured invoice data from accumulated WhatsApp messages.
         Returns parsed dict, or raises on failure.
         """
         messages_text = "\n".join(f"- {m}" for m in messages)
-        prompt = EXTRACTION_PROMPT.format(messages=messages_text)
+        doc_hint = f"\nEl usuario ya seleccionó el tipo de documento: *{doc_type}*. Usa este valor para doc_type." if doc_type else ""
+        prompt = EXTRACTION_PROMPT.format(messages=messages_text) + doc_hint
 
         response = self._client.models.generate_content(
             model="gemini-2.5-flash-lite",
