@@ -105,17 +105,18 @@ MENU_TEXT = (
     "1️⃣  Factura\n"
     "2️⃣  Cotización\n"
     "3️⃣  Guía de Remisión\n\n"
-    "Responde con el número o envía directamente los datos."
+    "Responde con el número o envía directamente los datos.\n"
+    "Escribe *0* en cualquier momento para cancelar."
 )
 
 
 def _dispatch(phone, text, session, sessions, wa, config):
     text_lower = text.lower().strip()
 
-    # Global cancel — works in any state
+    # Global cancel / back to menu — works in any state
     if text_lower in _CANCEL_WORDS and session.state != 'idle':
         sessions.clear(phone)
-        wa.send_text(phone, "Operación cancelada. ¿En qué más te puedo ayudar?")
+        wa.send_text(phone, "Operación cancelada.\n\n" + MENU_TEXT)
         return
 
     # Idle: show menu or detect doc type from first message
@@ -178,20 +179,28 @@ def _handle_collecting(phone, text, session, sessions, wa, config):
         sessions.save(session)
         return
 
+    # Session doc_type always wins over Gemini's guess
+    if session.doc_type:
+        extracted['doc_type'] = session.doc_type
+
     session.extracted = extracted
     missing = extracted.get('missing_fields', [])
+
+    # Remove doc_type from missing if already set by user
+    if session.doc_type and 'doc_type' in missing:
+        missing = [f for f in missing if f != 'doc_type']
 
     if missing:
         # Show what we have + ask for what's missing
         preview = _format_partial_preview(extracted)
         missing_msg = _format_missing(missing)
-        wa.send_text(phone, f"{preview}\n\n{missing_msg}")
+        wa.send_text(phone, f"{preview}\n\n{missing_msg}\n\n_Escribe *0* para cancelar._")
         sessions.save(session)
     else:
         # Complete — show full confirmation
         session.state = 'confirming'
         preview = _format_full_preview(extracted)
-        wa.send_text(phone, f"{preview}\n\n¿Confirmar y enviar? Responde *sí* o *no*")
+        wa.send_text(phone, f"{preview}\n\n¿Confirmar y enviar? Responde *sí* o *no*\n_Escribe *0* para cancelar._")
         sessions.save(session)
 
 
@@ -391,54 +400,73 @@ def _format_partial_preview(extracted: dict) -> str:
 
 
 def _format_full_preview(extracted: dict) -> str:
-    lines = ["📋 *Resumen para confirmar:*\n"]
-
     doc_type = extracted.get('doc_type', 'unknown')
-    type_label = {'factura': '🧾 FACTURA', 'boleta': '🧾 BOLETA', 'cotizacion': '📄 COTIZACIÓN'}
-    lines.append(type_label.get(doc_type, '📄 DOCUMENTO'))
+    type_label = {
+        'factura':    '🧾 FACTURA',
+        'boleta':     '🧾 BOLETA DE VENTA',
+        'cotizacion': '📄 COTIZACIÓN',
+        'guia':       '🚚 GUÍA DE REMISIÓN',
+    }
+    header = type_label.get(doc_type, '📄 DOCUMENTO')
 
     cust = extracted.get('customer', {})
-    lines.append(f"\n👤 *Cliente:* {cust.get('name', '-')}")
-    if cust.get('ruc'):
-        lines.append(f"   RUC: {cust['ruc']}")
-    if cust.get('email'):
-        lines.append(f"   Email: {cust['email']}")
-    if cust.get('contact_person'):
-        lines.append(f"   Atención: {cust['contact_person']}")
-
     items = extracted.get('items', [])
     currency = extracted.get('currency', 'PEN')
     price_includes_igv = extracted.get('price_includes_igv', False)
     symbol = '$' if currency == 'USD' else 'S/.'
 
-    lines.append("\n📦 *Productos:*")
+    sep = "─────────────────────"
+    lines = [
+        f"*{header}*",
+        sep,
+        f"👤 *{cust.get('name', '-').upper()}*",
+    ]
+    if cust.get('ruc'):
+        lines.append(f"   RUC: {cust['ruc']}")
+    if cust.get('contact_person'):
+        lines.append(f"   Attn: {cust['contact_person']}")
+    if cust.get('email'):
+        lines.append(f"   ✉️ {cust['email']}")
+
+    lines.append(sep)
+    lines.append("📦 *PRODUCTOS*")
+
     total_base = 0
-    for item in items:
-        qty = item.get('quantity', 0)
-        price = item.get('unit_price', 0)
+    for i, item in enumerate(items, 1):
+        qty = float(item.get('quantity', 0))
+        price = float(item.get('unit_price', 0))
         unit = item.get('unit', '')
         desc = item.get('description', '?')
         line_total = qty * price
         total_base += line_total
-        lines.append(f"  • {desc}")
+
+        lines.append(f"\n*{i}. {desc}*")
         if item.get('origin'):
-            lines.append(f"    Procedencia: {item['origin']}")
+            lines.append(f"   Proc: {item['origin']}")
         if item.get('presentation'):
-            lines.append(f"    Presentación: {item['presentation']}")
-        lines.append(f"    {qty} {unit} × {symbol}{price:.2f} = {symbol}{line_total:.2f}")
+            lines.append(f"   Pres: {item['presentation']}")
+        lines.append(f"   {qty:g} {unit} × {symbol}{price:.2f} = {symbol}{line_total:.2f}")
 
-    igv = round(total_base * 0.18, 2)
-    total = round(total_base + igv, 2) if not price_includes_igv else round(total_base, 2)
-    base_display = round(total_base / 1.18, 2) if price_includes_igv else total_base
+    lines.append(sep)
 
-    lines.append(f"\n💰 *Subtotal:* {symbol}{base_display:.2f}")
-    lines.append(f"   IGV 18%: {symbol}{igv:.2f}" if not price_includes_igv else f"   IGV inc.: {symbol}{round(total_base - base_display, 2):.2f}")
-    lines.append(f"   *TOTAL: {symbol}{total:.2f}*")
+    if price_includes_igv:
+        base_display = round(total_base / 1.18, 2)
+        igv = round(total_base - base_display, 2)
+        total = round(total_base, 2)
+    else:
+        base_display = total_base
+        igv = round(total_base * 0.18, 2)
+        total = round(total_base + igv, 2)
+
+    lines.append(f"   Valor venta: {symbol}{base_display:.2f}")
+    lines.append(f"   IGV (18%):   {symbol}{igv:.2f}")
+    lines.append(f"   *TOTAL:      {symbol}{total:.2f} {currency}*")
 
     if extracted.get('delivery'):
-        lines.append(f"\n🚚 Entrega: {extracted['delivery']}")
+        lines.append(sep)
+        lines.append(f"🚚 {extracted['delivery']}")
     if extracted.get('payment_terms'):
-        lines.append(f"💳 Pago: {extracted['payment_terms']}")
+        lines.append(f"💳 {extracted['payment_terms']}")
 
     return '\n'.join(lines)
 
