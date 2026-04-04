@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: WhatsApp Bot Agent - Invoice creation via WhatsApp for Fordist
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        SESSIONS_TABLE: !Ref SessionsTable
+
+Resources:
+
+  # -------------------------------------------------------
+  # DynamoDB: conversation sessions
+  # -------------------------------------------------------
+  SessionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bot-agent-${Stage}-sessions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: phoneNumber
+          AttributeType: S
+      KeySchema:
+        - AttributeName: phoneNumber
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # -------------------------------------------------------
+  # Webhook Lambda — fast: validates + invokes processor async
+  # -------------------------------------------------------
+  WebhookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub bot-agent-${Stage}-webhook
+      CodeUri: src/webhook/
+      Handler: app.handler
+      Timeout: 10
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ProcessorFunction
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub bot-agent/${Stage}/*
+      Environment:
+        Variables:
+          PROCESSOR_FUNCTION_NAME: !Ref ProcessorFunction
+          SSM_PREFIX: !Sub /bot-agent/${Stage}
+      Events:
+        Webhook:
+          Type: Api
+          Properties:
+            Path: /webhook
+            Method: ANY
+
+  # -------------------------------------------------------
+  # Processor Lambda — heavy: Claude + API calls + replies
+  # -------------------------------------------------------
+  ProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub bot-agent-${Stage}-processor
+      CodeUri: src/processor/
+      Handler: app.handler
+      Timeout: 120
+      MemorySize: 512
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionsTable
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub bot-agent/${Stage}/*
+      Environment:
+        Variables:
+          SSM_PREFIX: !Sub /bot-agent/${Stage}
+
+Outputs:
+  WebhookUrl:
+    Description: Paste this URL in Meta Developer Portal as webhook URL
+    Value: !Sub https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/webhook

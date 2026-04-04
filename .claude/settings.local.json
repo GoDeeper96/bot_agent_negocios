@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(aws apigateway get-rest-apis:*)",
+      "Bash(aws configure:*)",
+      "Bash(aws sts:*)",
+      "Bash(curl:*)",
+      "Bash(aws cognito-idp list-groups:*)",
+      "Bash(aws cognito-idp list-users:*)",
+      "Bash(aws dynamodb:*)",
+      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); [print\\(json.dumps\\({k:v.get\\('S'\\) or v.get\\('N'\\) for k,v in item.items\\(\\) if k in ['enterpriseId','name','email']}, indent=2\\)\\) for item in data.get\\('Items',[]\\)]\")",
+      "Bash(python3 -c ':*)",
+      "Bash(aws cloudformation describe-stacks:*)",
+      "Bash(aws cognito-idp admin-create-user:*)",
+      "Bash(aws cognito-idp admin-set-user-password:*)",
+      "Bash(aws cognito-idp:*)",
+      "Bash(bash scripts/setup_ssm.sh dev)",
+      "Bash(aws ssm:*)",
+      "Bash(sam build:*)",
+      "Bash(pip3 --version)",
+      "Bash(where sam:*)",
+      "Bash(\"C:\\\\Program Files\\\\Amazon\\\\AWSSAMCLI\\\\bin\\\\sam.cmd\" build)",
+      "Bash(\"C:\\\\Program Files\\\\Amazon\\\\AWSSAMCLI\\\\bin\\\\sam.cmd\" deploy --config-env dev --no-confirm-changeset)"
+    ]
+  }
+}
