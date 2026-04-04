@@ -23,7 +23,11 @@
       "Bash(\"C:\\\\Program Files\\\\Amazon\\\\AWSSAMCLI\\\\bin\\\\sam.cmd\" build)",
       "Bash(\"C:\\\\Program Files\\\\Amazon\\\\AWSSAMCLI\\\\bin\\\\sam.cmd\" deploy --config-env dev --no-confirm-changeset)",
       "Bash(aws s3:*)",
-      "Bash(MSYS_NO_PATHCONV=1 aws cloudformation deploy:*)"
+      "Bash(MSYS_NO_PATHCONV=1 aws cloudformation deploy:*)",
+      "Bash(MSYS_NO_PATHCONV=1 aws logs describe-log-groups:*)",
+      "Bash(aws lambda:*)",
+      "Bash(MSYS_NO_PATHCONV=1 \"C:\\\\Program Files\\\\Amazon\\\\AWSSAMCLI\\\\bin\\\\sam.cmd\" deploy --config-env dev --no-confirm-changeset)",
+      "Bash(MSYS_NO_PATHCONV=1 \"C:\\\\Program Files\\\\Amazon\\\\AWSSAMCLI\\\\bin\\\\sam.cmd\" deploy --config-env dev --no-confirm-changeset --profile eyatech)"
     ]
   }
 }

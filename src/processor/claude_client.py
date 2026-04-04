@@ -7,7 +7,7 @@ Output: structured dict with customer, items, currency, missing fields
 import json
 import logging
 
-import google.generativeai as genai
+from google import genai
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +71,7 @@ Para missing_fields incluye los que faltan para procesar el documento:
 
 class GeminiClient:
     def __init__(self, api_key: str):
-        genai.configure(api_key=api_key)
-        self._model = genai.GenerativeModel("gemini-1.5-flash")
+        self._client = genai.Client(api_key=api_key)
 
     def extract_invoice_data(self, messages: list) -> dict:
         """
@@ -82,7 +81,10 @@ class GeminiClient:
         messages_text = "\n".join(f"- {m}" for m in messages)
         prompt = EXTRACTION_PROMPT.format(messages=messages_text)
 
-        response = self._model.generate_content(prompt)
+        response = self._client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=prompt,
+        )
         raw = response.text.strip()
 
         # Strip markdown code blocks if Gemini wraps the JSON
