@@ -684,6 +684,12 @@ def _format_cotizacion_preview(extracted: dict) -> str:
     if payment:
         lines.append(f"💳 Pago: {payment}")
 
+    no_pres = [i.get('description', '?') for i in items if not i.get('presentation')]
+    if no_pres:
+        lines.append("")
+        for desc in no_pres:
+            lines.append(f"⚠️ _Sin presentación: {desc}_")
+
     return '\n'.join(lines)
 
 

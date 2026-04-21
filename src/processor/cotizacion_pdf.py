@@ -134,10 +134,10 @@ def generate_cotizacion_pdf(extracted: dict, cot_number: str) -> bytes:
         line  = qty * price
         total_base += line
 
-        desc = item.get("description", "?")
-        pres = item.get("presentation", "")
-        unit = item.get("unit", "")
-        orig = item.get("origin", "")
+        desc = item.get("description") or "?"
+        pres = item.get("presentation") or ""
+        unit = item.get("unit") or ""
+        orig = item.get("origin") or ""
         if orig:
             desc = f"{desc}\nProc: {orig}"
 
@@ -185,7 +185,7 @@ def generate_cotizacion_pdf(extracted: dict, cot_number: str) -> bytes:
     pdf.ln(1)
 
     conditions = []
-    global_origin = extracted.get("global_origin") or (items[0].get("origin") if items else None)
+    global_origin = extracted.get("global_origin") or (items[0].get("origin") if items else None) or ""
     if global_origin:
         conditions.append(("Procedencia", global_origin))
     if extracted.get("delivery"):
