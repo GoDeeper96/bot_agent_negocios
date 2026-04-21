@@ -4,10 +4,11 @@ Session manager — stores conversation state in DynamoDB.
 Each session is keyed by phone number and expires after 30 minutes of inactivity.
 
 States:
-  idle        — no active conversation
-  collecting  — accumulating messages, extracting data
-  confirming  — showing preview, waiting for sí/no
-  email       — invoice done, asking whether to email PDF
+  idle          — no active conversation
+  collecting    — accumulating messages, extracting data
+  confirming    — showing preview, waiting for sí/no
+  email_preview — cotización confirmed, showing email preview before send
+  email         — invoice done, asking whether to email PDF
 """
 import json
 import logging
@@ -42,9 +43,10 @@ class Session:
         self.messages = data.get('messages', [])       # raw texts accumulated
         self.extracted = data.get('extracted', {})     # Claude's last extraction
         self.pending_sale = data.get('pending_sale', {})  # sale data ready to submit
-        self.last_sale_id = data.get('last_sale_id')   # saleId after creation
-        self.last_pdf_url = data.get('last_pdf_url')   # PDF URL after SUNAT
-        self.last_email = data.get('last_email')       # customer email for PDF send
+        self.last_sale_id  = data.get('last_sale_id')    # saleId after creation
+        self.last_pdf_url  = data.get('last_pdf_url')    # PDF URL after SUNAT
+        self.last_email    = data.get('last_email')      # customer email for PDF send
+        self.last_cot_number = data.get('last_cot_number')  # COT-YYYY-NNN assigned on confirm
 
     def add_message(self, text: str):
         self.messages.append(text)
@@ -59,9 +61,10 @@ class Session:
             'messages': self.messages,
             'extracted': self.extracted,
             'pending_sale': self.pending_sale,
-            'last_sale_id': self.last_sale_id,
-            'last_pdf_url': self.last_pdf_url,
-            'last_email': self.last_email,
+            'last_sale_id':    self.last_sale_id,
+            'last_pdf_url':    self.last_pdf_url,
+            'last_email':      self.last_email,
+            'last_cot_number': self.last_cot_number,
         }
 
 

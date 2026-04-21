@@ -65,7 +65,7 @@ Resources:
             Method: ANY
 
   # -------------------------------------------------------
-  # Processor Lambda — heavy: Claude + API calls + replies
+  # Processor Lambda — heavy: Gemini + API calls + replies
   # -------------------------------------------------------
   ProcessorFunction:
     Type: AWS::Serverless::Function
@@ -80,6 +80,12 @@ Resources:
             TableName: !Ref SessionsTable
         - SSMParameterReadPolicy:
             ParameterName: !Sub bot-agent/${Stage}/*
+        - Statement:
+            - Effect: Allow
+              Action: ssm:PutParameter
+              Resource:
+                - !Sub arn:aws:ssm:us-west-2:*:parameter/bot-agent/${Stage}/cotizacion_counter
+                - !Sub arn:aws:ssm:us-west-2:*:parameter/bot-agent/${Stage}/graph/refresh_token
       Environment:
         Variables:
           SSM_PREFIX: !Sub /bot-agent/${Stage}

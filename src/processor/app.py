@@ -2,16 +2,18 @@
 Processor Lambda — main bot logic.
 
 Conversation states:
-  idle        → waiting for input
-  collecting  → accumulating messages + extracting data
-  confirming  → preview shown, waiting for sí/no
-  email       → invoice sent to SUNAT, asking about PDF email
+  idle          → waiting for input
+  collecting    → accumulating messages + extracting data
+  confirming    → preview shown, waiting for sí/no
+  email_preview → cotización confirmed, email preview shown, waiting for sí/no
+  email         → invoice sent to SUNAT, asking about PDF email
 """
 import json
 import logging
 import math
 import os
 import time
+from datetime import datetime
 
 import boto3
 
@@ -152,6 +154,13 @@ def _dispatch(phone, text, session, sessions, wa, config):
             # Treat as additional info, re-extract
             _handle_collecting(phone, text, session, sessions, wa, config)
 
+    elif session.state == 'email_preview':
+        if text_lower in _CONFIRM_WORDS:
+            _handle_send_cotizacion_email(phone, session, sessions, wa, config)
+        else:
+            sessions.clear(phone)
+            wa.send_text(phone, "Entendido, no se enviará el email. ✅\n\n" + MENU_TEXT)
+
     elif session.state == 'email':
         if text_lower in _CONFIRM_WORDS:
             _handle_send_email(phone, session, sessions, wa, config)
@@ -191,16 +200,20 @@ def _handle_collecting(phone, text, session, sessions, wa, config):
         missing = [f for f in missing if f != 'doc_type']
 
     if missing:
-        # Show what we have + ask for what's missing
         preview = _format_partial_preview(extracted)
         missing_msg = _format_missing(missing)
         wa.send_text(phone, f"{preview}\n\n{missing_msg}\n\n_Escribe *0* para cancelar._")
         sessions.save(session)
     else:
-        # Complete — show full confirmation
         session.state = 'confirming'
-        preview = _format_full_preview(extracted)
-        wa.send_text(phone, f"{preview}\n\n¿Confirmar y enviar? Responde *sí* o *no*\n_Escribe *0* para cancelar._")
+        is_cotizacion = extracted.get('doc_type') == 'cotizacion'
+        if is_cotizacion:
+            preview      = _format_cotizacion_preview(extracted)
+            confirm_text = "¿Confirmar datos? Responde *sí* o *no*\n_Escribe *0* para cancelar._"
+        else:
+            preview      = _format_full_preview(extracted)
+            confirm_text = "¿Confirmar y enviar? Responde *sí* o *no*\n_Escribe *0* para cancelar._"
+        wa.send_text(phone, f"{preview}\n\n{confirm_text}")
         sessions.save(session)
 
 
@@ -209,6 +222,10 @@ def _handle_collecting(phone, text, session, sessions, wa, config):
 # ---------------------------------------------------------------------------
 
 def _handle_submit(phone, session, sessions, wa, config):
+    if (session.doc_type or session.extracted.get('doc_type')) == 'cotizacion':
+        _handle_cotizacion_confirmed(phone, session, sessions, wa, config)
+        return
+
     wa.send_text(phone, "⏳ Procesando...")
 
     extracted = session.extracted
@@ -507,3 +524,323 @@ def _build_product_name(item: dict) -> str:
     if item.get('presentation'):
         parts.append(item['presentation'])
     return ' - '.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Cotización flow
+# ---------------------------------------------------------------------------
+
+_COMPANY_NAME  = "NEGOCIOS MULTIPLES LICHAN S.A.C."
+_COMPANY_RUC   = "20607960225"
+_COMPANY_TEL   = "960-113-935"
+_COMPANY_EMAIL = "negocios.lichan@outlook.com"
+
+
+def _next_cotizacion_number() -> str:
+    """Atomically increment SSM counter and return COT-YYYY-NNN."""
+    ssm        = boto3.client('ssm', region_name='us-west-2')
+    param_name = f"{os.environ['SSM_PREFIX']}/cotizacion_counter"
+    try:
+        resp = ssm.get_parameter(Name=param_name)
+        n = int(resp['Parameter']['Value']) + 1
+    except ssm.exceptions.ParameterNotFound:
+        n = 1
+    ssm.put_parameter(Name=param_name, Value=str(n), Type='String', Overwrite=True)
+    return f"COT-{datetime.now().year}-{n:03d}"
+
+
+def _handle_cotizacion_confirmed(phone, session, sessions, wa, config):
+    """Dad confirmed cotización data → assign number, show email preview."""
+    cot_number = _next_cotizacion_number()
+    session.last_cot_number = cot_number
+    session.last_email = session.extracted.get('customer', {}).get('email')
+
+    customer_email = session.last_email
+
+    if not customer_email:
+        sessions.clear(phone)
+        wa.send_text(phone,
+            f"✅ Cotización *{cot_number}* confirmada.\n\n"
+            "No hay email del cliente registrado. Puedes reenviar el texto directamente.")
+        return
+
+    session.state = 'email_preview'
+    sessions.save(session)
+    wa.send_text(phone, _format_email_preview(session.extracted, cot_number))
+
+
+def _handle_send_cotizacion_email(phone, session, sessions, wa, config):
+    """Dad confirmed email preview → generate PDF and send via SES."""
+    from cotizacion_pdf import generate_cotizacion_pdf
+    from email_client import send_cotizacion_email
+
+    extracted  = session.extracted
+    cot_number = session.last_cot_number
+    to_email   = session.last_email
+
+    if not to_email or not cot_number:
+        wa.send_text(phone, "❌ No hay email o número de cotización disponible.")
+        sessions.clear(phone)
+        return
+
+    wa.send_text(phone, "⏳ Generando PDF y enviando...")
+
+    try:
+        pdf_bytes    = generate_cotizacion_pdf(extracted, cot_number)
+        pdf_filename = f"{cot_number}.pdf"
+        cust_name    = extracted.get('customer', {}).get('name', 'Cliente').upper()
+        subject      = f"Cotización {cot_number} | {cust_name}"
+
+        ok = send_cotizacion_email(
+            to_email=to_email,
+            subject=subject,
+            body_text=_build_email_body(extracted, cot_number),
+            pdf_bytes=pdf_bytes,
+            pdf_filename=pdf_filename,
+            ssm_prefix=os.environ['SSM_PREFIX'],
+        )
+        if ok:
+            wa.send_text(phone, f"✅ Cotización *{cot_number}* enviada a *{to_email}*")
+        else:
+            wa.send_text(phone, "❌ No se pudo enviar el email. Intenta de nuevo.")
+    except Exception as e:
+        logger.exception(f"Error sending cotizacion email: {e}")
+        wa.send_text(phone, "❌ Error al generar o enviar la cotización.")
+    finally:
+        sessions.clear(phone)
+
+
+# ---------------------------------------------------------------------------
+# Cotización formatters
+# ---------------------------------------------------------------------------
+
+def _format_cotizacion_preview(extracted: dict) -> str:
+    """WhatsApp message 1 — cotización data preview before dad confirms."""
+    cust      = extracted.get('customer', {})
+    items     = extracted.get('items', [])
+    currency  = extracted.get('currency', 'PEN')
+    inc_igv   = extracted.get('price_includes_igv', False)
+    symbol    = '$' if currency == 'USD' else 'S/.'
+    contact   = extracted.get('contact_persons') or cust.get('contact_person', '')
+    validity  = extracted.get('validity_days', 15)
+
+    sep = "─────────────────────"
+    lines = [
+        f"*📄 COTIZACIÓN*",
+        f"*{_COMPANY_NAME}*",
+        sep,
+        f"*Para:* {cust.get('name', '').upper()}",
+    ]
+    if cust.get('ruc'):
+        lines.append(f"*RUC:* {cust['ruc']}")
+    if contact:
+        lines.append(f"*Attn:* {contact}")
+    if cust.get('email'):
+        lines.append(f"*Email:* {cust['email']}")
+
+    lines += [
+        f"*Fecha:* {datetime.now().strftime('%d/%m/%Y')}  |  *Válido:* {validity} días",
+        sep,
+        "*PRODUCTOS*",
+    ]
+
+    total_base = 0.0
+    for i, item in enumerate(items, 1):
+        qty   = float(item.get('quantity', 0))
+        price = float(item.get('unit_price', 0))
+        line  = qty * price
+        total_base += line
+        lines.append(f"\n*{i}. {item.get('description', '?')}*")
+        if item.get('origin'):
+            lines.append(f"   Proc: {item['origin']}")
+        if item.get('presentation'):
+            lines.append(f"   Pres: {item['presentation']}")
+        lines.append(f"   {qty:g} {item.get('unit','')} × {symbol}{price:,.2f} = {symbol}{line:,.2f}")
+
+    lines.append(sep)
+
+    if inc_igv:
+        base_display = round(total_base / 1.18, 2)
+        igv   = round(total_base - base_display, 2)
+        total = total_base
+    else:
+        base_display = total_base
+        igv   = round(total_base * 0.18, 2)
+        total = round(total_base + igv, 2)
+
+    lines += [
+        f"   Subtotal:     {symbol}{base_display:,.2f}",
+        f"   I.G.V. (18%): {symbol}{igv:,.2f}",
+        f"   *TOTAL:       {symbol}{total:,.2f} {currency}*",
+        sep,
+    ]
+
+    global_origin = extracted.get('global_origin') or (items[0].get('origin') if items else None)
+    if global_origin:
+        lines.append(f"📦 Procedencia: {global_origin}")
+    if extracted.get('delivery'):
+        lines.append(f"🚚 Entrega: {extracted['delivery']}")
+    payment = extracted.get('payment_detail') or extracted.get('payment_terms')
+    if payment:
+        lines.append(f"💳 Pago: {payment}")
+
+    return '\n'.join(lines)
+
+
+def _format_email_preview(extracted: dict, cot_number: str) -> str:
+    """WhatsApp message 2 — full email preview before sending to client."""
+    cust      = extracted.get('customer', {})
+    items     = extracted.get('items', [])
+    currency  = extracted.get('currency', 'PEN')
+    inc_igv   = extracted.get('price_includes_igv', False)
+    symbol    = '$' if currency == 'USD' else 'S/.'
+    contact   = extracted.get('contact_persons') or cust.get('contact_person', 'Estimados señores')
+    validity  = extracted.get('validity_days', 15)
+    to_email  = cust.get('email', '')
+    cust_name = cust.get('name', '').upper()
+
+    total_base = sum(float(i.get('quantity', 0)) * float(i.get('unit_price', 0)) for i in items)
+    if inc_igv:
+        base_display = round(total_base / 1.18, 2)
+        igv   = round(total_base - base_display, 2)
+        total = total_base
+    else:
+        base_display = total_base
+        igv   = round(total_base * 0.18, 2)
+        total = round(total_base + igv, 2)
+
+    sep = "─────────────────────"
+    lines = [
+        "📧 *Vista previa del email:*",
+        sep,
+        f"*Para:* {to_email}",
+        f"*Asunto:* {cot_number} | {cust_name}",
+        sep,
+        f"Estimado/a {contact},",
+        "",
+        "Por medio del presente le hacemos llegar nuestra",
+        "cotización por los productos solicitados:",
+        "",
+        "*PRODUCTOS:*",
+    ]
+
+    for item in items:
+        qty   = float(item.get('quantity', 0))
+        price = float(item.get('unit_price', 0))
+        line  = qty * price
+        lines.append(
+            f"  • {item.get('description','?')} — "
+            f"{qty:g} {item.get('unit','')} × {symbol}{price:,.2f} = {symbol}{line:,.2f}"
+        )
+
+    lines += [
+        "",
+        f"  Subtotal:     {symbol}{base_display:,.2f}",
+        f"  I.G.V. (18%): {symbol}{igv:,.2f}",
+        f"  *TOTAL:       {symbol}{total:,.2f} {currency}*",
+        "",
+        "*Condiciones Comerciales:*",
+    ]
+
+    global_origin = extracted.get('global_origin') or (items[0].get('origin') if items else None)
+    if global_origin:
+        lines.append(f"  Procedencia:   {global_origin}")
+    if extracted.get('delivery'):
+        lines.append(f"  Entrega:       {extracted['delivery']}")
+    payment = extracted.get('payment_detail') or extracted.get('payment_terms')
+    if payment:
+        lines.append(f"  Forma de pago: {payment}")
+    lines.append(f"  Validez:       {validity} días")
+
+    lines += [
+        "",
+        "_Adjunto encontrará el documento formal en PDF._",
+        "Quedamos atentos a su confirmación.",
+        "",
+        "Saludos cordiales,",
+        f"*{_COMPANY_NAME}*",
+        f"RUC: {_COMPANY_RUC}  |  Tel: {_COMPANY_TEL}",
+        _COMPANY_EMAIL,
+        sep,
+        f"¿Enviar este email a *{to_email}*?",
+        "Responde *sí* o *no*  |  _Escribe *0* para cancelar._",
+    ]
+
+    return '\n'.join(lines)
+
+
+def _build_email_body(extracted: dict, cot_number: str) -> str:
+    """Plain text email body (email client fallback / screen reader friendly)."""
+    cust      = extracted.get('customer', {})
+    items     = extracted.get('items', [])
+    currency  = extracted.get('currency', 'PEN')
+    inc_igv   = extracted.get('price_includes_igv', False)
+    symbol    = '$' if currency == 'USD' else 'S/.'
+    contact   = extracted.get('contact_persons') or cust.get('contact_person', 'Estimados señores')
+    validity  = extracted.get('validity_days', 15)
+
+    total_base = sum(float(i.get('quantity', 0)) * float(i.get('unit_price', 0)) for i in items)
+    if inc_igv:
+        base_display = round(total_base / 1.18, 2)
+        igv   = round(total_base - base_display, 2)
+        total = total_base
+    else:
+        base_display = total_base
+        igv   = round(total_base * 0.18, 2)
+        total = round(total_base + igv, 2)
+
+    lines = [
+        f"Estimado/a {contact},",
+        "",
+        "Por medio del presente le hacemos llegar nuestra cotización por los productos solicitados:",
+        "",
+        "DETALLE DE PRODUCTOS:",
+        "-" * 55,
+    ]
+    for item in items:
+        qty   = float(item.get('quantity', 0))
+        price = float(item.get('unit_price', 0))
+        desc  = item.get('description', '?')
+        if item.get('presentation'):
+            desc += f" ({item['presentation']})"
+        lines += [
+            f"  {desc}",
+            f"  {qty:g} {item.get('unit','')} x {symbol}{price:,.2f} = {symbol}{qty*price:,.2f}",
+        ]
+        if item.get('origin'):
+            lines.append(f"  Procedencia: {item['origin']}")
+        lines.append("")
+
+    lines += [
+        "-" * 55,
+        f"  SUBTOTAL:      {symbol}{base_display:,.2f}",
+        f"  I.G.V. (18%):  {symbol}{igv:,.2f}",
+        f"  TOTAL A PAGAR: {symbol}{total:,.2f} {currency}",
+        "-" * 55,
+        "",
+        "CONDICIONES COMERCIALES:",
+    ]
+
+    global_origin = extracted.get('global_origin') or (items[0].get('origin') if items else None)
+    if global_origin:
+        lines.append(f"  Procedencia:   {global_origin}")
+    if extracted.get('delivery'):
+        lines.append(f"  Entrega:       {extracted['delivery']}")
+    payment = extracted.get('payment_detail') or extracted.get('payment_terms')
+    if payment:
+        lines.append(f"  Forma de pago: {payment}")
+    lines.append(f"  Validez:       {validity} días calendario")
+
+    lines += [
+        "",
+        "Adjunto encontrará el documento formal en PDF.",
+        "Quedamos atentos a su confirmación para generar la orden correspondiente.",
+        "",
+        "Saludos cordiales,",
+        "",
+        _COMPANY_NAME,
+        f"RUC: {_COMPANY_RUC}",
+        f"Telf: {_COMPANY_TEL}",
+        _COMPANY_EMAIL,
+    ]
+    return '\n'.join(lines)

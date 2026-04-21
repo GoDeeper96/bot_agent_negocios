@@ -27,7 +27,8 @@
       "Bash(MSYS_NO_PATHCONV=1 aws logs describe-log-groups:*)",
       "Bash(aws lambda:*)",
       "Bash(MSYS_NO_PATHCONV=1 \"C:\\\\Program Files\\\\Amazon\\\\AWSSAMCLI\\\\bin\\\\sam.cmd\" deploy --config-env dev --no-confirm-changeset)",
-      "Bash(MSYS_NO_PATHCONV=1 \"C:\\\\Program Files\\\\Amazon\\\\AWSSAMCLI\\\\bin\\\\sam.cmd\" deploy --config-env dev --no-confirm-changeset --profile eyatech)"
+      "Bash(MSYS_NO_PATHCONV=1 \"C:\\\\Program Files\\\\Amazon\\\\AWSSAMCLI\\\\bin\\\\sam.cmd\" deploy --config-env dev --no-confirm-changeset --profile eyatech)",
+      "Bash(MSYS_NO_PATHCONV=1 aws lambda list-functions --profile eyatech --region us-west-2)"
     ]
   }
 }

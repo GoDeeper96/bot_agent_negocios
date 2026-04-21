@@ -15,16 +15,23 @@ EXTRACTION_PROMPT = """Eres un asistente que extrae datos de facturas y cotizaci
 
 El usuario es un vendedor peruano que envía mensajes informales describiendo ventas. Debes extraer los datos estructurados.
 
-REGLAS:
+REGLAS GENERALES:
 - Si el precio tiene "$" es USD. Si tiene "S/." o "Soles" es PEN.
-- "MAS IGV" o "+ IGV" significa que el IGV (18%) se agrega al precio indicado. El precio mostrado es BASE (sin IGV).
-- Si dice "INC. IGV" o "INCLUYE IGV" el precio ya incluye el IGV.
+- "MAS IGV" o "+ IGV" → price_includes_igv = false (precio base, se suma IGV).
+- "INC. IGV" o "INCLUYE IGV" → price_includes_igv = true.
 - Para facturas se necesita RUC del cliente. Para boletas el DNI es opcional.
 - Si menciona "FACTURA" o "FACTURAR" → doc_type = "factura"
 - Si menciona "BOLETA" → doc_type = "boleta"
-- Si menciona "COTIZACION" o "COTIZACIÓN" → doc_type = "cotizacion"
+- Si menciona "COTIZACION" o "COTIZACIÓN" o "COTIZAR" → doc_type = "cotizacion"
 - Si no especifica → doc_type = "unknown"
-- Cantidades: interpreta unidades como KGS, KG, UNIDADES, CAJAS, etc.
+- Cantidades: interpreta unidades como KGS, KG, UNIDADES, CAJAS, TN, LT, etc.
+
+REGLAS PARA COTIZACIONES:
+- "Atención:", "Att:", "Attn:", "A/C:" indica contact_persons (puede ser más de uno, separados por "/").
+- "Procedencia:" o "Proc:" a nivel global (no por producto) → global_origin.
+- "Válido por X días", "validez X días", "vigencia X días" → validity_days (número entero).
+- Forma de pago con detalle entre paréntesis → payment_detail. Ej: "Contado (Depósito en cuenta)" → payment_detail.
+- Si no se indica validez, usar 15 días por defecto.
 
 MENSAJES DEL USUARIO:
 {messages}
@@ -39,17 +46,20 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura (sin markdown, sin 
     "ruc": "11 dígitos o null",
     "dni": "8 dígitos o null",
     "email": "email o null",
-    "contact_person": "nombre contacto o null",
-    "address": "dirección o null"
+    "contact_person": "nombre contacto principal o null"
   }},
+  "contact_persons": "Ing. Roberto Roeder / Srta. Rojana Hurtado o null",
+  "global_origin": "China o null (procedencia global del pedido, no por producto)",
+  "validity_days": 15,
+  "payment_detail": "Contado (Depósito en Cuenta Corriente) o null",
   "items": [
     {{
       "description": "descripción del producto",
-      "origin": "procedencia o null",
+      "origin": "procedencia del producto o null",
       "presentation": "presentación/empaque o null",
       "quantity": número,
-      "unit": "KGS|UNIDADES|CAJAS|etc",
-      "unit_price": número (precio base sin IGV),
+      "unit": "KGS|UNIDADES|CAJAS|TN|LT|etc",
+      "unit_price": número,
       "sku": "código o null"
     }}
   ],
@@ -59,14 +69,14 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura (sin markdown, sin 
   "missing_fields": ["lista de campos requeridos que faltan"]
 }}
 
-Para missing_fields incluye los que faltan para procesar el documento:
+Para missing_fields incluye:
 - "customer_name" si falta nombre del cliente
 - "customer_ruc" si es factura y falta RUC
-- "customer_email" si falta email (para envío de PDF)
+- "customer_email" si falta email (para envío de cotización)
 - "items" si no hay productos
 - "quantity" si falta cantidad de algún producto
 - "unit_price" si falta precio de algún producto
-- "doc_type" si no se sabe si es factura, boleta o cotización"""
+- "doc_type" si no se sabe qué tipo de documento es"""
 
 
 class GeminiClient:
