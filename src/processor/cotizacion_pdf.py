@@ -87,7 +87,10 @@ def generate_cotizacion_pdf(extracted: dict, cot_number: str) -> bytes:
     pdf.cell(0, 9, f"COTIZACIÓN  {cot_number}", align="C", ln=True)
     pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 5, f"Fecha: {date_str}  |  Válido por: {validity} días calendario", align="C", ln=True)
+    subtitle = f"Fecha: {date_str}"
+    if validity:
+        subtitle += f"  |  Válido por: {validity} días calendario"
+    pdf.cell(0, 5, subtitle, align="C", ln=True)
     pdf.ln(4)
 
     # ── Client block ───────────────────────────────────────
@@ -193,7 +196,8 @@ def generate_cotizacion_pdf(extracted: dict, cot_number: str) -> bytes:
     payment = extracted.get("payment_detail") or extracted.get("payment_terms")
     if payment:
         conditions.append(("Forma de pago", payment))
-    conditions.append(("Validez", f"{validity} días calendario"))
+    if validity:
+        conditions.append(("Validez", f"{validity} días calendario"))
     if extracted.get("notes"):
         conditions.append(("Observaciones", extracted["notes"]))
 

@@ -638,8 +638,10 @@ def _format_cotizacion_preview(extracted: dict) -> str:
     if cust.get('email'):
         lines.append(f"*Email:* {cust['email']}")
 
-    lines += [
-        f"*Fecha:* {datetime.now().strftime('%d/%m/%Y')}  |  *Válido:* {validity} días",
+    fecha_line = f"*Fecha:* {datetime.now().strftime('%d/%m/%Y')}"
+    if validity:
+        fecha_line += f"  |  *Válido:* {validity} días"
+    lines += [fecha_line,
         sep,
         "*PRODUCTOS*",
     ]
@@ -700,10 +702,11 @@ def _format_email_preview(extracted: dict, cot_number: str) -> str:
     currency  = extracted.get('currency', 'PEN')
     inc_igv   = extracted.get('price_includes_igv', False)
     symbol    = '$' if currency == 'USD' else 'S/.'
-    contact   = extracted.get('contact_persons') or cust.get('contact_person', 'Estimados señores')
-    validity  = extracted.get('validity_days', 15)
+    contact   = extracted.get('contact_persons') or cust.get('contact_person')
+    validity  = extracted.get('validity_days')
     to_email  = cust.get('email', '')
     cust_name = cust.get('name', '').upper()
+    greeting  = f"Estimado/a {contact}" if contact else f"Estimados {cust_name}"
 
     total_base = sum(float(i.get('quantity', 0)) * float(i.get('unit_price', 0)) for i in items)
     if inc_igv:
@@ -722,7 +725,7 @@ def _format_email_preview(extracted: dict, cot_number: str) -> str:
         f"*Para:* {to_email}",
         f"*Asunto:* {cot_number} | {cust_name}",
         sep,
-        f"Estimado/a {contact},",
+        f"{greeting},",
         "",
         "Por medio del presente le hacemos llegar nuestra",
         "cotización por los productos solicitados:",
@@ -756,7 +759,8 @@ def _format_email_preview(extracted: dict, cot_number: str) -> str:
     payment = extracted.get('payment_detail') or extracted.get('payment_terms')
     if payment:
         lines.append(f"  Forma de pago: {payment}")
-    lines.append(f"  Validez:       {validity} días")
+    if validity:
+        lines.append(f"  Validez:       {validity} días")
 
     lines += [
         "",
@@ -782,8 +786,9 @@ def _build_email_body(extracted: dict, cot_number: str) -> str:
     currency  = extracted.get('currency', 'PEN')
     inc_igv   = extracted.get('price_includes_igv', False)
     symbol    = '$' if currency == 'USD' else 'S/.'
-    contact   = extracted.get('contact_persons') or cust.get('contact_person', 'Estimados señores')
-    validity  = extracted.get('validity_days', 15)
+    contact   = extracted.get('contact_persons') or cust.get('contact_person')
+    validity  = extracted.get('validity_days')
+    greeting  = f"Estimado/a {contact}" if contact else f"Estimados {cust.get('name', '').upper()}"
 
     total_base = sum(float(i.get('quantity', 0)) * float(i.get('unit_price', 0)) for i in items)
     if inc_igv:
@@ -796,7 +801,7 @@ def _build_email_body(extracted: dict, cot_number: str) -> str:
         total = round(total_base + igv, 2)
 
     lines = [
-        f"Estimado/a {contact},",
+        f"{greeting},",
         "",
         "Por medio del presente le hacemos llegar nuestra cotización por los productos solicitados:",
         "",
@@ -835,7 +840,8 @@ def _build_email_body(extracted: dict, cot_number: str) -> str:
     payment = extracted.get('payment_detail') or extracted.get('payment_terms')
     if payment:
         lines.append(f"  Forma de pago: {payment}")
-    lines.append(f"  Validez:       {validity} días calendario")
+    if validity:
+        lines.append(f"  Validez:       {validity} días calendario")
 
     lines += [
         "",

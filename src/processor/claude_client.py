@@ -29,7 +29,7 @@ REGLAS GENERALES:
 REGLAS PARA COTIZACIONES:
 - "Atención:", "Att:", "Attn:", "A/C:" indica contact_persons (puede ser más de uno, separados por "/").
 - "Procedencia:" o "Proc:" a nivel global (no por producto) → global_origin.
-- "Válido por X días", "validez X días", "vigencia X días" → validity_days (número entero).
+- "Válido por X días", "validez X días", "vigencia X días" → validity_days (número entero). Si no se menciona explícitamente → null.
 - Forma de pago con detalle entre paréntesis → payment_detail. Ej: "Contado (Depósito en cuenta)" → payment_detail.
 - Si no se indica validez, usar 15 días por defecto.
 
@@ -50,7 +50,7 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura (sin markdown, sin 
   }},
   "contact_persons": "Ing. Roberto Roeder / Srta. Rojana Hurtado o null",
   "global_origin": "China o null (procedencia global del pedido, no por producto)",
-  "validity_days": 15,
+  "validity_days": null,
   "payment_detail": "Contado (Depósito en Cuenta Corriente) o null",
   "items": [
     {{
