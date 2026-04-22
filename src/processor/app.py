@@ -248,10 +248,12 @@ def _handle_submit(phone, session, sessions, wa, config):
             return
 
         # 2. Get document series
-        doc_type_code = '01'  # Factura
+        doc_type_map  = {'factura': '01', 'boleta': '03'}
+        doc_type_code = doc_type_map.get(session.doc_type or extracted.get('doc_type', ''), '01')
+        doc_label     = 'Factura' if doc_type_code == '01' else 'Boleta'
         series = pos.get_document_series(doc_type_code)
         if not series:
-            wa.send_text(phone, "❌ No se encontró serie de documentos activa para Factura.")
+            wa.send_text(phone, f"❌ No se encontró serie de documentos activa para {doc_label}.")
             sessions.clear(phone)
             return
 
@@ -300,7 +302,7 @@ def _handle_submit(phone, session, sessions, wa, config):
             session.state = 'email'
             sessions.save(session)
 
-            msg = f"✅ Factura *{full_number}* enviada y aceptada por SUNAT."
+            msg = f"✅ {doc_label} *{full_number}* enviada y aceptada por SUNAT."
             if session.last_email:
                 msg += f"\n\n¿Enviar PDF al correo *{session.last_email}*? Responde *sí* o *no*"
                 wa.send_text(phone, msg)
@@ -346,35 +348,37 @@ def _handle_send_email(phone, session, sessions, wa, config):
 # ---------------------------------------------------------------------------
 
 def _resolve_customer(extracted: dict, pos: PosApiClient):
-    """
-    Look up customer by name. Returns customer dict or error string.
-    """
-    cust = extracted.get('customer', {})
-    name = cust.get('name')
-    ruc = cust.get('ruc')
+    """Look up customer by name. Returns customer dict or an error/question string."""
+    cust  = extracted.get('customer', {})
+    name  = cust.get('name')
+    ruc   = cust.get('ruc')
+    dni   = cust.get('dni')
     email = cust.get('email')
+
+    doc_number = ruc or dni
+    doc_type   = 'RUC' if ruc else ('DNI' if dni else None)
 
     if not name:
         return "Necesito el nombre del cliente para continuar."
 
-    # Try lookup by name
+    # Try lookup by name first
     found = pos.search_customer(name)
     if found:
         return found
 
-    # Not found — need RUC to create
-    if not ruc:
+    # Not found — need a document number to create
+    if not doc_number:
+        doc_hint = '*RUC* (factura) o *DNI* (boleta)'
         return (
             f"No encontré al cliente *{name}* en el sistema.\n"
-            "Por favor envíame su *RUC* para registrarlo."
+            f"Por favor envíame su {doc_hint} para registrarlo."
         )
 
-    # Create customer
     try:
         new_customer = pos.create_customer(
             name=name.upper(),
-            document_number=ruc,
-            document_type='RUC',
+            document_number=doc_number,
+            document_type=doc_type,
             email=email,
         )
         return new_customer.get('customer') or new_customer

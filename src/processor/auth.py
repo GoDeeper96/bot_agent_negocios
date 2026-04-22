@@ -33,7 +33,7 @@ def get_token(cognito_region: str, client_id: str, username: str, password: str)
     )
 
     result = resp['AuthenticationResult']
-    _cached_token = result['IdToken']
+    _cached_token = result['AccessToken']
     _token_expiry = time.time() + result.get('ExpiresIn', 3600)
 
     logger.info("Cognito token refreshed")
