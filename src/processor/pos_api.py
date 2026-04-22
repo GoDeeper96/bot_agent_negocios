@@ -132,4 +132,5 @@ class PosApiClient:
                 msg = resp.json().get('error') or resp.json().get('message') or resp.text[:200]
             except Exception:
                 msg = resp.text[:200]
+            logger.error(f"POS API {resp.status_code} on {resp.url} — headers sent: {dict(self._headers)} — response: {resp.text[:300]}")
             raise PosApiError(resp.status_code, msg)
