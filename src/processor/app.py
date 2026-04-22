@@ -199,6 +199,9 @@ def _handle_collecting(phone, text, session, sessions, wa, config):
     if session.doc_type and 'doc_type' in missing:
         missing = [f for f in missing if f != 'doc_type']
 
+    # Email is optional — never block the flow on it
+    missing = [f for f in missing if f != 'customer_email']
+
     if missing:
         preview = _format_partial_preview(extracted)
         missing_msg = _format_missing(missing)
