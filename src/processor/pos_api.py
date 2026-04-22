@@ -25,7 +25,7 @@ class PosApiClient:
     def __init__(self, base_url: str, token: str):
         self._base = base_url.rstrip('/')
         self._headers = {
-            "Authorization": f"Bearer {token}",
+            "Authorization": token,
             "Content-Type": "application/json",
         }
 
