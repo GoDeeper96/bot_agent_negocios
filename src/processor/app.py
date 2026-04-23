@@ -310,6 +310,7 @@ def _handle_submit(phone, session, sessions, wa, config):
         full_number   = complete_resp.get('documentNumber') or complete_resp.get('documentFullNumber', '')
         sunat_status  = complete_resp.get('sunatStatus', 'pending')
         sunat_message = complete_resp.get('sunatMessage', '')
+        logger.info(f"Parsed: full_number={full_number} sunat_status={sunat_status}")
 
         # Extract PDF from nested sale document if available
         sale_data  = complete_resp.get('sale', {})
