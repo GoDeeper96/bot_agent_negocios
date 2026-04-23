@@ -48,7 +48,8 @@ def _invoke(function_name: str, method: str, path: str,
         "pathParameters":       path_params or {},
         "queryStringParameters": query or {},
         "requestContext": {
-            "stage": _STAGE,
+            "stage":        _STAGE,
+            "resourcePath": path,
             "authorizer": {
                 "claims": {
                     "sub":   (auth_user or {}).get("userId", ""),
