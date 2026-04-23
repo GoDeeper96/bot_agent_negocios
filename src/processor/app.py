@@ -266,12 +266,13 @@ def _handle_submit(phone, session, sessions, wa, config):
         price_includes_igv = extracted.get('price_includes_igv', False)
 
         sale_payload = {
-            'customerId': customer.get('customerId'),
-            'customerName': customer.get('name'),
+            'customerId':       customer.get('customerId'),
+            'customerName':     customer.get('name'),
             'customerDocument': customer.get('documentNumber'),
-            'documentType': doc_type_code,
-            'currency': currency,
-            'notes': extracted.get('notes') or extracted.get('delivery') or '',
+            'documentType':     doc_type_code,
+            'currency':         currency,
+            'warehouseId':      'warehouse-lichan',
+            'notes':            extracted.get('notes') or extracted.get('delivery') or '',
         }
         sale = pos.create_sale(sale_payload)
         sale_id = sale['saleId']

@@ -121,6 +121,8 @@ class PosApiClient:
             enterprise_id="enterprise-0658d531-21f9-48ad-8ed7-6a9fb65a91c0",
             company_id="company-lichan",
         )
+        self._company_id    = "company-lichan"
+        self._enterprise_id = "enterprise-0658d531-21f9-48ad-8ed7-6a9fb65a91c0"
 
     # ------------------------------------------------------------------
     # Customers
@@ -159,6 +161,7 @@ class PosApiClient:
 
     def get_document_series(self, document_type: str) -> Optional[dict]:
         resp = _invoke(_SETTINGS_FN, "GET", "/core/settings/document-series",
+                       query={"companyId": self._auth["companyId"]},
                        auth_user=self._auth)
         logger.info(f"get_document_series raw response: {str(resp)[:300]}")
         series_list = _extract_list(resp, "series")
