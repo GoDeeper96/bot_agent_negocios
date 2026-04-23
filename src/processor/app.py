@@ -295,7 +295,7 @@ def _handle_submit(phone, session, sessions, wa, config):
             for i in items
         )
         pos.add_payment(sale_id, {
-            'paymentMethod':  'CONTADO',
+            'paymentMethod':  'cash',
             'amount':         int(total_cents),
             'receivedAmount': int(total_cents),
         })
