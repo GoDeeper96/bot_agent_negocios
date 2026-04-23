@@ -277,16 +277,18 @@ def _handle_submit(phone, session, sessions, wa, config):
         sale = pos.create_sale(sale_payload)
         sale_id = sale['saleId']
 
-        # 4. Add items
+        # 4. Add items — unitPrice in SOLES (API converts to cents internally)
         for item in items:
-            unit_price = _to_cents(item['unit_price'], price_includes_igv)
+            base_price = float(item['unit_price'])
+            # API expects price WITH IGV included
+            unit_price_soles = round(base_price if price_includes_igv else base_price * 1.18, 2)
             pos.add_sale_item(sale_id, {
                 'productId':   item.get('sku') or 'product-freehand-lichan',
                 'productName': _build_product_name(item),
                 'productSku':  item.get('sku') or 'LIBRE',
                 'productUom':  item.get('unit', 'UNIDADES'),
                 'quantity':    float(item['quantity']),
-                'unitPrice':   unit_price,
+                'unitPrice':   unit_price_soles,
             })
 
         # 5. Add payment (amount in SOLES, API converts to cents internally)
