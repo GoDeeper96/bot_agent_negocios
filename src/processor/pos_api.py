@@ -7,9 +7,17 @@ boto3 Lambda.invoke — same AWS account, no HTTP auth needed.
 import json
 import logging
 import os
+from decimal import Decimal
 from typing import Optional
 
 import boto3
+
+
+class _DecimalEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, Decimal):
+            return float(o)
+        return super().default(o)
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +78,7 @@ def _invoke(function_name: str, method: str, path: str,
     event = {
         "httpMethod":    method,
         "path":          path,
-        "body":          json.dumps(body or {}),
+        "body":          json.dumps(body or {}, cls=_DecimalEncoder),
         "pathParameters":       path_params or {},
         "queryStringParameters": query or {},
         "requestContext": {
