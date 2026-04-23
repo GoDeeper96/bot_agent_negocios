@@ -281,11 +281,12 @@ def _handle_submit(phone, session, sessions, wa, config):
         for item in items:
             unit_price = _to_cents(item['unit_price'], price_includes_igv)
             pos.add_sale_item(sale_id, {
+                'productId':   item.get('sku') or 'product-freehand-lichan',
                 'productName': _build_product_name(item),
-                'productSku': item.get('sku') or 'SIN-SKU',
-                'productUom': item.get('unit', 'UNIDADES'),
-                'quantity': item['quantity'],
-                'unitPrice': unit_price,
+                'productSku':  item.get('sku') or 'LIBRE',
+                'productUom':  item.get('unit', 'UNIDADES'),
+                'quantity':    float(item['quantity']),
+                'unitPrice':   unit_price,
             })
 
         # 5. Complete sale
