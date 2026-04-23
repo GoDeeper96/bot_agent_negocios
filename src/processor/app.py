@@ -289,8 +289,12 @@ def _handle_submit(phone, session, sessions, wa, config):
                 'unitPrice':   unit_price,
             })
 
-        # 5. Complete sale
-        pos.complete_sale(sale_id, {'paymentMethod': 'CONTADO', 'amount': 0})
+        # 5. Complete sale — amount is total in cents (sum of all items)
+        total_cents = sum(
+            _to_cents(i['unit_price'], price_includes_igv) * float(i['quantity'])
+            for i in items
+        )
+        pos.complete_sale(sale_id, {'paymentMethod': 'CONTADO', 'amount': int(total_cents)})
 
         # 6. Send to SUNAT
         sunat_resp = pos.send_to_sunat(sale_id)
