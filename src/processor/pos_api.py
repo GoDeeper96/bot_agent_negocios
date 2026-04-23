@@ -196,9 +196,16 @@ class PosApiClient:
         logger.info(f"add_sale_item raw response: {str(resp)[:200]}")
         return _extract_item(resp)
 
+    def add_payment(self, sale_id: str, payment: dict) -> dict:
+        resp = _invoke(_SALES_FN, "POST", f"/core/sales/{sale_id}/payments",
+                       body=payment, path_params={"saleId": sale_id},
+                       auth_user=self._auth)
+        logger.info(f"add_payment raw response: {str(resp)[:200]}")
+        return _extract_item(resp)
+
     def complete_sale(self, sale_id: str, payment: dict) -> dict:
         resp = _invoke(_SALES_FN, "POST", f"/core/sales/{sale_id}/complete",
-                       body=payment, path_params={"saleId": sale_id},
+                       body={}, path_params={"saleId": sale_id},
                        auth_user=self._auth)
         logger.info(f"complete_sale raw response: {str(resp)[:200]}")
         return _extract_item(resp)
