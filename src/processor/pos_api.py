@@ -178,7 +178,8 @@ class PosApiClient:
         resp = _invoke(_SALES_FN, "POST", "/core/sales",
                        body=payload, auth_user=self._auth)
         logger.info(f"create_sale raw response: {str(resp)[:300]}")
-        return _extract_item(resp)
+        data = resp.get("data", {})
+        return data.get("sale") or data or resp
 
     def add_sale_item(self, sale_id: str, item: dict) -> dict:
         resp = _invoke(_SALES_FN, "POST", f"/core/sales/{sale_id}/items",
