@@ -104,7 +104,15 @@ class PosApiClient:
         resp = _invoke(_CUSTOMER_FN, "GET", "/core/customers",
                        query={"search": name, "limit": "5"},
                        auth_user=self._auth)
-        customers = resp.get("customers") or resp.get("items") or resp.get("data") or []
+        logger.info(f"search_customer raw response: {str(resp)[:300]}")
+        customers = resp.get("customers") or resp.get("items") or []
+        data = resp.get("data")
+        if data and not customers:
+            # data may be a list or a dict with numeric keys
+            if isinstance(data, list):
+                customers = data
+            elif isinstance(data, dict):
+                customers = list(data.values())
         if not customers:
             return None
         return customers[0]
@@ -131,7 +139,11 @@ class PosApiClient:
     def get_document_series(self, document_type: str) -> Optional[dict]:
         resp = _invoke(_SETTINGS_FN, "GET", "/core/settings/document-series",
                        auth_user=self._auth)
-        series_list = resp.get("series") or resp.get("items") or resp.get("data") or []
+        logger.info(f"get_document_series raw response: {str(resp)[:300]}")
+        series_list = resp.get("series") or resp.get("items") or []
+        data = resp.get("data")
+        if data and not series_list:
+            series_list = data if isinstance(data, list) else list(data.values())
         for s in series_list:
             if s.get("documentType") == document_type and s.get("isActive"):
                 return s
