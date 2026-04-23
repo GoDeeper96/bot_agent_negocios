@@ -289,33 +289,37 @@ def _handle_submit(phone, session, sessions, wa, config):
                 'unitPrice':   unit_price,
             })
 
-        # 5. Add payment then complete sale
-        total_cents = sum(
-            _to_cents(float(i['unit_price']), price_includes_igv) * float(i['quantity'])
+        # 5. Add payment (amount in SOLES, API converts to cents internally)
+        total_soles = sum(
+            float(i['unit_price']) * float(i['quantity']) * (1 if price_includes_igv else 1.18)
             for i in items
         )
+        total_soles = round(total_soles, 2)
         pos.add_payment(sale_id, {
             'paymentMethod':  'cash',
-            'amount':         int(total_cents),
-            'receivedAmount': int(total_cents),
+            'amount':         total_soles,
+            'receivedAmount': total_soles,
         })
-        pos.complete_sale(sale_id, {})
 
-        # 6. Send to SUNAT
-        sunat_resp = pos.send_to_sunat(sale_id)
+        # 6. Complete sale — triggers SUNAT internally (non-blocking)
+        complete_resp = pos.complete_sale(sale_id, {})
+        logger.info(f"complete_sale response: {str(complete_resp)[:400]}")
 
-        success = sunat_resp.get('success', False)
-        document = sunat_resp.get('document', {})
-        pdf_url = document.get('pdfUrl')
-        full_number = document.get('fullNumber') or sale.get('documentFullNumber', '')
+        full_number   = complete_resp.get('documentNumber') or complete_resp.get('documentFullNumber', '')
+        sunat_status  = complete_resp.get('sunatStatus', 'pending')
+        sunat_message = complete_resp.get('sunatMessage', '')
 
-        if success:
-            session.last_sale_id = sale_id
-            session.last_pdf_url = pdf_url
-            session.last_email = extracted.get('customer', {}).get('email')
+        # Extract PDF from nested sale document if available
+        sale_data  = complete_resp.get('sale', {})
+        pdf_url    = complete_resp.get('pdfUrl') or sale_data.get('pdfUrl')
+
+        session.last_sale_id = sale_id
+        session.last_pdf_url = pdf_url
+        session.last_email   = extracted.get('customer', {}).get('email')
+
+        if sunat_status == 'accepted':
             session.state = 'email'
             sessions.save(session)
-
             msg = f"✅ {doc_label} *{full_number}* enviada y aceptada por SUNAT."
             if session.last_email:
                 msg += f"\n\n¿Enviar PDF al correo *{session.last_email}*? Responde *sí* o *no*"
@@ -324,8 +328,11 @@ def _handle_submit(phone, session, sessions, wa, config):
                 wa.send_text(phone, msg + "\n\n(No hay correo registrado para el cliente.)")
                 sessions.clear(phone)
         else:
-            error_msg = sunat_resp.get('message', 'Error desconocido')
-            wa.send_text(phone, f"⚠️ Factura creada ({full_number}) pero SUNAT respondió: {error_msg}")
+            # Sale completed but SUNAT pending/rejected — still notify
+            msg = f"✅ {doc_label} *{full_number}* creada."
+            if sunat_message:
+                msg += f"\n⚠️ SUNAT: {sunat_message}"
+            wa.send_text(phone, msg)
             sessions.clear(phone)
 
     except PosApiError as e:

@@ -207,8 +207,9 @@ class PosApiClient:
         resp = _invoke(_SALES_FN, "POST", f"/core/sales/{sale_id}/complete",
                        body={}, path_params={"saleId": sale_id},
                        auth_user=self._auth)
-        logger.info(f"complete_sale raw response: {str(resp)[:200]}")
-        return _extract_item(resp)
+        logger.info(f"complete_sale raw response: {str(resp)[:400]}")
+        # Return full data dict — contains sale, documentNumber, sunatStatus, sunatMessage
+        return resp.get("data") or resp
 
     def send_to_sunat(self, sale_id: str) -> dict:
         resp = _invoke(_SALES_FN, "POST", f"/core/sales/{sale_id}/send-sunat",
