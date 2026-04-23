@@ -514,11 +514,8 @@ def _format_missing(missing: list) -> str:
 # Price helpers
 # ---------------------------------------------------------------------------
 
-def _to_cents(price: float, includes_igv: bool) -> int:
-    """
-    Convert unit price to integer cents for the POS API.
-    The API expects prices WITH IGV included (tax-inclusive), in cents.
-    """
+def _to_cents(price, includes_igv: bool) -> int:
+    price = float(price)
     if includes_igv:
         return round(price * 100)
     else:
