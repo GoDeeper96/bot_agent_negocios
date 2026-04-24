@@ -277,18 +277,19 @@ def _handle_submit(phone, session, sessions, wa, config):
         sale = pos.create_sale(sale_payload)
         sale_id = sale['saleId']
 
-        # 4. Add items — unitPrice in SOLES (API converts to cents internally)
+        # 4. Add items — unitPrice in sale currency (API converts to cents internally)
         for item in items:
             base_price = float(item['unit_price'])
-            # API expects price WITH IGV included
-            unit_price_soles = round(base_price if price_includes_igv else base_price * 1.18, 2)
+            # API expects price WITH IGV included; use 4 decimals to avoid precision loss
+            # on USD prices like 1.40 × 1.18 = 1.652 (would round to 1.65 at 2 decimals)
+            unit_price_with_igv = round(base_price if price_includes_igv else base_price * 1.18, 4)
             pos.add_sale_item(sale_id, {
                 'productId':   item.get('sku') or 'product-freehand-lichan',
                 'productName': _build_product_name(item),
                 'productSku':  item.get('sku') or 'LIBRE',
                 'productUom':  item.get('unit', 'UNIDADES'),
                 'quantity':    float(item['quantity']),
-                'unitPrice':   unit_price_soles,
+                'unitPrice':   unit_price_with_igv,
             })
 
         # 5. Add payment (amount in SOLES, API converts to cents internally)
@@ -303,7 +304,7 @@ def _handle_submit(phone, session, sessions, wa, config):
             'receivedAmount': total_soles,
         })
 
-        # 6. Complete sale — triggers SUNAT internally (non-blocking)
+        # 6. Complete sale — triggers SUNAT submission internally via new_dc_api_2026
         complete_resp = pos.complete_sale(sale_id, {})
         logger.info(f"complete_sale response: {str(complete_resp)[:400]}")
 
@@ -312,9 +313,8 @@ def _handle_submit(phone, session, sessions, wa, config):
         sunat_message = complete_resp.get('sunatMessage', '')
         logger.info(f"Parsed: full_number={full_number} sunat_status={sunat_status}")
 
-        # Extract PDF from nested sale document if available
-        sale_data  = complete_resp.get('sale', {})
-        pdf_url    = complete_resp.get('pdfUrl') or sale_data.get('pdfUrl')
+        sale_data = complete_resp.get('sale', {})
+        pdf_url   = complete_resp.get('pdfUrl') or sale_data.get('pdfUrl')
 
         session.last_sale_id = sale_id
         session.last_pdf_url = pdf_url
@@ -331,7 +331,6 @@ def _handle_submit(phone, session, sessions, wa, config):
                 wa.send_text(phone, msg + "\n\n(No hay correo registrado para el cliente.)")
                 sessions.clear(phone)
         else:
-            # Sale completed but SUNAT pending/rejected — still notify
             msg = f"✅ {doc_label} *{full_number}* creada."
             if sunat_message:
                 msg += f"\n⚠️ SUNAT: {sunat_message}"
