@@ -51,6 +51,7 @@ class Session:
         self.last_full_number = data.get('last_full_number') # e.g. "F149-00000011"
         self.last_doc_label  = data.get('last_doc_label')    # "Factura" or "Boleta"
         self.last_cot_number = data.get('last_cot_number')   # COT-YYYY-NNN assigned on confirm
+        self.last_message_id = data.get('last_message_id')   # for deduplication
 
     def add_message(self, text: str):
         self.messages.append(text)
@@ -73,6 +74,7 @@ class Session:
             'last_full_number': self.last_full_number,
             'last_doc_label':   self.last_doc_label,
             'last_cot_number':  self.last_cot_number,
+            'last_message_id':  self.last_message_id,
         }
 
 

@@ -75,8 +75,9 @@ def _load_config() -> dict:
 def handler(event, context):
     """Entry point — invoked async by webhook Lambda."""
     try:
-        phone = event['from']
-        text = event['text'].strip()
+        phone      = event['from']
+        text       = event['text'].strip()
+        message_id = event.get('message_id', '')
 
         config = _load_config()
 
@@ -88,6 +89,14 @@ def handler(event, context):
         wa = WhatsAppClient(config['meta_token'], config['phone_number_id'])
         sessions = SessionManager()
         session = sessions.get(phone)
+
+        # Deduplicate: Meta occasionally delivers the same message twice
+        if message_id and message_id == session.last_message_id:
+            logger.warning(f"Duplicate message_id {message_id} — skipping")
+            return
+
+        if message_id:
+            session.last_message_id = message_id
 
         _dispatch(phone, text, session, sessions, wa, config)
 
@@ -179,6 +188,19 @@ _EXAMPLE_GUIA = (
 )
 
 
+def _detect_doc_intent(text_lower: str) -> str | None:
+    """Return doc_type if the message clearly signals an intent, else None."""
+    if any(k in text_lower for k in ('cotizacion', 'cotización', 'cotizar')):
+        return 'cotizacion'
+    if any(k in text_lower for k in ('guia de remision', 'guía de remisión', 'guia remision')):
+        return 'guia'
+    if any(k in text_lower for k in ('factura', 'facturar')):
+        return 'factura'
+    if 'boleta' in text_lower:
+        return 'boleta'
+    return None
+
+
 def _handle_example(phone, option: str, wa):
     examples = {'4.1': _EXAMPLE_FACTURA, '4.2': _EXAMPLE_COTIZACION, '4.3': _EXAMPLE_GUIA}
     wa.send_text(phone, examples[option])
@@ -209,11 +231,17 @@ def _dispatch(phone, text, session, sessions, wa, config):
             sessions.save(session)
             wa.send_text(phone, f"*{session.doc_type.capitalize()}* seleccionada ✅\nEnvíame los datos del cliente y productos.")
         else:
-            # Dad sent data directly — show menu but also start collecting
+            # Try to detect doc intent from keywords before showing the menu
+            detected = _detect_doc_intent(text_lower)
             session.state = 'collecting'
             session.add_message(text)
-            sessions.save(session)
-            wa.send_text(phone, MENU_TEXT)
+            if detected:
+                session.doc_type = detected
+                sessions.save(session)
+                _handle_collecting(phone, None, session, sessions, wa, config)
+            else:
+                sessions.save(session)
+                wa.send_text(phone, MENU_TEXT)
         return
 
     if session.state == 'collecting':
