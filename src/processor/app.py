@@ -106,15 +106,82 @@ def handler(event, context):
 _CONFIRM_WORDS = {'si', 'sí', 'yes', 'confirmar', 'ok', 'dale', 'enviar'}
 _CANCEL_WORDS  = {'no', 'cancelar', 'cancel', 'nope', '0'}
 _MENU_OPTIONS  = {'1': 'factura', '2': 'cotizacion', '3': 'guia'}
+_EXAMPLES_MENU = {'4.1', '4.2', '4.3'}
 
 MENU_TEXT = (
     "Hola 👋 ¿Qué deseas crear?\n\n"
     "1️⃣  Factura\n"
     "2️⃣  Cotización\n"
-    "3️⃣  Guía de Remisión\n\n"
+    "3️⃣  Guía de Remisión\n"
+    "4️⃣  Ver ejemplos\n\n"
     "Responde con el número o envía directamente los datos.\n"
     "Escribe *0* en cualquier momento para cancelar."
 )
+
+_EXAMPLES_SUBMENU = (
+    "*4️⃣ Ejemplos de uso*\n\n"
+    "4️⃣.1️⃣  Ejemplo Factura\n"
+    "4️⃣.2️⃣  Ejemplo Cotización\n"
+    "4️⃣.3️⃣  Ejemplo Guía de Remisión\n\n"
+    "Responde con *4.1*, *4.2* o *4.3*"
+)
+
+_EXAMPLE_FACTURA = (
+    "*📋 Ejemplo de Factura:*\n\n"
+    "```\n"
+    "Factura para IMPORTACIONES ABC S.A.C.\n"
+    "RUC 20512345678\n"
+    "correo: compras@importacionesabc.com\n\n"
+    "- 50 bolsas arroz 50kg a $18.00 c/u\n"
+    "- 20 cajas aceite vegetal a $45.00 c/u\n\n"
+    "Precios más IGV\n"
+    "```\n\n"
+    "_Puedes enviarlo así o con tus propios datos._\n"
+    "Escribe *1* para crear una factura."
+)
+
+_EXAMPLE_COTIZACION = (
+    "*📋 Ejemplo de Cotización:*\n\n"
+    "```\n"
+    "Cotización para DISTRIBUIDORA NORTE S.R.L.\n"
+    "RUC 20601234567\n"
+    "Atención: Ing. Carlos Ruiz\n"
+    "correo: carlos.ruiz@dnorte.com\n\n"
+    "- Harina de trigo 100 sacos 50kg a $22.00\n"
+    "- Azúcar rubia 80 bolsas 50kg a $28.00\n\n"
+    "Precios más IGV\n"
+    "Válido 15 días\n"
+    "Pago: Contado (depósito en cuenta)\n"
+    "```\n\n"
+    "_Puedes enviarlo así o con tus propios datos._\n"
+    "Escribe *2* para crear una cotización."
+)
+
+_EXAMPLE_GUIA = (
+    "*📋 Ejemplo de Guía de Remisión:*\n\n"
+    "```\n"
+    "Guía de remisión para TRANSPORTES EL RAPIDO S.A.C.\n"
+    "RUC 20512345678\n\n"
+    "Bienes:\n"
+    "- 50 bolsas arroz 50kg c/u\n"
+    "- 20 cajas aceite vegetal\n"
+    "Peso total: 2500 KG\n\n"
+    "Partida: Cal. Los Eucaliptos Mza A Lote 5, Villa El Salvador, Lima\n"
+    "Llegada: Av. Industrial 450, Ate, Lima\n"
+    "Fecha traslado: 2026-04-28\n\n"
+    "Conductor: Juan Perez Quispe\n"
+    "DNI: 45678901\n"
+    "Licencia: Q45678901\n"
+    "Placa: ABC-123\n"
+    "```\n\n"
+    "_Puedes enviarlo así o con tus propios datos._\n"
+    "Escribe *3* para crear una guía de remisión."
+)
+
+
+def _handle_example(phone, option: str, wa):
+    examples = {'4.1': _EXAMPLE_FACTURA, '4.2': _EXAMPLE_COTIZACION, '4.3': _EXAMPLE_GUIA}
+    wa.send_text(phone, examples[option])
 
 
 def _dispatch(phone, text, session, sessions, wa, config):
@@ -124,6 +191,14 @@ def _dispatch(phone, text, session, sessions, wa, config):
     if text_lower in _CANCEL_WORDS and session.state != 'idle':
         sessions.clear(phone)
         wa.send_text(phone, "Operación cancelada.\n\n" + MENU_TEXT)
+        return
+
+    # Examples submenu — works from any state
+    if text_lower == '4':
+        wa.send_text(phone, _EXAMPLES_SUBMENU)
+        return
+    if text_lower in _EXAMPLES_MENU:
+        _handle_example(phone, text_lower, wa)
         return
 
     # Idle: show menu or detect doc type from first message
