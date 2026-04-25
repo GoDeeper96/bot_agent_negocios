@@ -952,7 +952,7 @@ def _format_cotizacion_preview(extracted: dict) -> str:
     inc_igv   = extracted.get('price_includes_igv', False)
     symbol    = '$' if currency == 'USD' else 'S/.'
     contact   = extracted.get('contact_persons') or cust.get('contact_person', '')
-    validity  = extracted.get('validity_days', 15)
+    validity  = extracted.get('validity_days')
 
     sep = "─────────────────────"
     lines = [

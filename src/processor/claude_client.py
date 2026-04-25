@@ -32,7 +32,7 @@ REGLAS PARA COTIZACIONES:
 - "Procedencia:" o "Proc:" a nivel global (no por producto) → global_origin.
 - "Válido por X días", "validez X días", "vigencia X días" → validity_days (número entero). Si no se menciona explícitamente → null.
 - Forma de pago con detalle entre paréntesis → payment_detail. Ej: "Contado (Depósito en cuenta)" → payment_detail.
-- Si no se indica validez, usar 15 días por defecto.
+- Si no se indica validez, dejar null (no usar valor por defecto).
 
 REGLAS PARA GUÍAS DE REMISIÓN:
 - El receptor (destinatario) puede identificarse por RUC (11 dígitos) o DNI (8 dígitos).
