@@ -308,6 +308,11 @@ def _handle_collecting(phone, text, session, sessions, wa, config):
     if session.doc_type and 'doc_type' in missing:
         missing = [f for f in missing if f != 'doc_type']
 
+    # RUC only required for factura — not for cotizacion, boleta, guia
+    doc_now = extracted.get('doc_type')
+    if doc_now in ('cotizacion', 'boleta', 'guia'):
+        missing = [f for f in missing if f != 'customer_ruc']
+
     # Email is optional — never block the flow on it
     missing = [f for f in missing if f != 'customer_email']
 
