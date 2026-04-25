@@ -294,7 +294,9 @@ class SunatClient:
             "fileName":    doc["fileName"],
             "documentBody": doc["documentBody"],
         }
+        import json as _json
         logger.info(f"Sending to apisunat: {doc['fileName']}")
+        logger.info(f"apisunat payload: {_json.dumps(payload, ensure_ascii=False)[:2000]}")
         resp = requests.post(_APISUNAT_URL, json=payload, timeout=30)
         if not resp.ok:
             logger.error(f"apisunat {resp.status_code}: {resp.text[:500]}")
