@@ -17,7 +17,7 @@ _COMPANY_RUC  = "20607960225"
 _COMPANY_NAME = "NEGOCIOS MULTIPLES LICHAN S.A.C."
 _COMPANY_ADDR = "CAL.LOS EUCALIPTOS MZA. A LOTE. 5 VILLA EL SALVADOR LIMA LIMA"
 
-_APISUNAT_URL = "https://api.apisunat.com/persona/{persona_id}/genera"
+_APISUNAT_URL = "https://back.apisunat.com/personas/v1/sendBill"
 
 # Informal unit label → SUNAT unitCode
 _UOM_MAP = {
@@ -120,10 +120,10 @@ def build_document(
         price = float(item["unit_price"])
         if price_includes_igv:
             unit_sin = _r(price / 1.18)
-            unit_con = _r(price)
+            unit_con = round(float(price), 4)
         else:
             unit_sin = _r(price)
-            unit_con = _r(price * 1.18)
+            unit_con = round(float(price) * 1.18, 4)
         line_ext = _r(qty * unit_sin)
         line_igv = _r(line_ext * 0.18)
         lines_data.append({
@@ -259,7 +259,6 @@ class SunatClient:
     def __init__(self, persona_id: str, persona_token: str):
         self._persona_id = persona_id
         self._token = persona_token
-        self._url = _APISUNAT_URL.format(persona_id=persona_id)
 
     def send_invoice(
         self,
@@ -296,8 +295,22 @@ class SunatClient:
             "documentBody": doc["documentBody"],
         }
         logger.info(f"Sending to apisunat: {doc['fileName']}")
-        resp = requests.post(self._url, json=payload, timeout=30)
+        resp = requests.post(_APISUNAT_URL, json=payload, timeout=30)
         resp.raise_for_status()
         result = resp.json()
         logger.info(f"apisunat response: {str(result)[:400]}")
-        return result
+
+        status = result.get("status", "")
+        faults = result.get("faults") or []
+        accepted = status not in ("RECHAZADO",) and not faults
+        pending  = status == "PENDIENTE"
+
+        return {
+            "accepted": accepted,
+            "pending":  pending,
+            "documentId": result.get("documentId"),
+            "pdfUrl":  result.get("pdf", {}).get("A4") or result.get("pdfUrl"),
+            "xmlUrl":  result.get("xml"),
+            "faults":  faults,
+            "raw":     result,
+        }

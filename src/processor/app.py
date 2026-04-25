@@ -21,6 +21,7 @@ from auth import get_token
 from claude_client import GeminiClient
 from pos_api import PosApiClient, PosApiError
 from session import Session, SessionManager
+from sunat_client import SunatClient
 from whatsapp import WhatsAppClient
 
 logger = logging.getLogger()
@@ -49,6 +50,8 @@ def _load_config() -> dict:
         f"{prefix}/cognito/password",
         f"{prefix}/cognito/client_id",
         f"{prefix}/pos_api/base_url",
+        f"{prefix}/sunat/persona_id",
+        f"{prefix}/sunat/persona_token",
     ]
 
     resp = ssm.get_parameters(Names=names, WithDecryption=True)
@@ -63,6 +66,8 @@ def _load_config() -> dict:
         'cognito_password': params['password'],
         'cognito_client_id': params['client_id'],
         'pos_api_base_url': params['base_url'],
+        'sunat_persona_id': params.get('persona_id', ''),
+        'sunat_persona_token': params.get('persona_token', ''),
     }
     return _config
 
@@ -262,7 +267,7 @@ def _handle_submit(phone, session, sessions, wa, config):
 
         # 3. Create sale
         items = extracted.get('items', [])
-        currency = extracted.get('currency', 'PEN')
+        currency = extracted.get('currency', 'USD')
         price_includes_igv = extracted.get('price_includes_igv', False)
 
         sale_payload = {
@@ -304,26 +309,56 @@ def _handle_submit(phone, session, sessions, wa, config):
             'receivedAmount': total_soles,
         })
 
-        # 6. Complete sale — triggers SUNAT submission internally via new_dc_api_2026
+        # 6. Complete sale — assigns document number (internal SUNAT path may also run)
         complete_resp = pos.complete_sale(sale_id, {})
         logger.info(f"complete_sale response: {str(complete_resp)[:400]}")
 
-        full_number   = complete_resp.get('documentNumber') or complete_resp.get('documentFullNumber', '')
-        sunat_status  = complete_resp.get('sunatStatus', 'pending')
-        sunat_message = complete_resp.get('sunatMessage', '')
-        logger.info(f"Parsed: full_number={full_number} sunat_status={sunat_status}")
-
-        sale_data = complete_resp.get('sale', {})
-        pdf_url   = complete_resp.get('pdfUrl') or sale_data.get('pdfUrl')
+        full_number = complete_resp.get('documentNumber') or complete_resp.get('documentFullNumber', '')
+        sale_data   = complete_resp.get('sale', {})
+        logger.info(f"Parsed: full_number={full_number}")
 
         session.last_sale_id = sale_id
-        session.last_pdf_url = pdf_url
         session.last_email   = extracted.get('customer', {}).get('email')
 
-        if sunat_status == 'accepted':
+        # 7. Submit directly to SUNAT via apisunat
+        sunat_ok  = False
+        sunat_msg = ''
+        if full_number and config.get('sunat_persona_id') and config.get('sunat_persona_token'):
+            parts = full_number.split('-')
+            if len(parts) == 2:
+                doc_series, doc_number = parts[0], parts[1]
+                sunat = SunatClient(config['sunat_persona_id'], config['sunat_persona_token'])
+                customer_scheme = '6' if (customer.get('documentType') or 'RUC') == 'RUC' else '1'
+                try:
+                    sunat_resp = sunat.send_invoice(
+                        doc_type_code=doc_type_code,
+                        series=doc_series,
+                        number=doc_number,
+                        currency=currency,
+                        customer_scheme_id=customer_scheme,
+                        customer_doc_number=customer.get('documentNumber', ''),
+                        customer_name=customer.get('name', ''),
+                        customer_address=customer.get('address', ''),
+                        items=items,
+                        price_includes_igv=price_includes_igv,
+                    )
+                    sunat_ok  = sunat_resp.get('accepted', False)
+                    sunat_msg = '' if sunat_ok else str(sunat_resp.get('faults', ''))[:150]
+                    if sunat_resp.get('pdfUrl'):
+                        session.last_pdf_url = sunat_resp['pdfUrl']
+                    logger.info(f"apisunat: accepted={sunat_ok} pending={sunat_resp.get('pending')}")
+                except Exception as e:
+                    logger.exception(f"apisunat error: {e}")
+                    sunat_msg = str(e)[:150]
+        else:
+            logger.warning("apisunat skipped: missing credentials or document number")
+
+        sessions.save(session)
+
+        if sunat_ok or (full_number and not sunat_msg):
             session.state = 'email'
             sessions.save(session)
-            msg = f"✅ {doc_label} *{full_number}* enviada y aceptada por SUNAT."
+            msg = f"✅ {doc_label} *{full_number}* enviada a SUNAT."
             if session.last_email:
                 msg += f"\n\n¿Enviar PDF al correo *{session.last_email}*? Responde *sí* o *no*"
                 wa.send_text(phone, msg)
@@ -332,8 +367,8 @@ def _handle_submit(phone, session, sessions, wa, config):
                 sessions.clear(phone)
         else:
             msg = f"✅ {doc_label} *{full_number}* creada."
-            if sunat_message:
-                msg += f"\n⚠️ SUNAT: {sunat_message}"
+            if sunat_msg:
+                msg += f"\n⚠️ SUNAT: {sunat_msg}"
             wa.send_text(phone, msg)
             sessions.clear(phone)
 
@@ -427,7 +462,7 @@ def _format_partial_preview(extracted: dict) -> str:
     items = extracted.get('items', [])
     if items:
         lines.append("\n📦 Productos:")
-        currency = extracted.get('currency', 'PEN')
+        currency = extracted.get('currency', 'USD')
         symbol = '$' if currency == 'USD' else 'S/.'
         for item in items:
             qty = item.get('quantity', '?')
@@ -455,7 +490,7 @@ def _format_full_preview(extracted: dict) -> str:
 
     cust = extracted.get('customer', {})
     items = extracted.get('items', [])
-    currency = extracted.get('currency', 'PEN')
+    currency = extracted.get('currency', 'USD')
     price_includes_igv = extracted.get('price_includes_igv', False)
     symbol = '$' if currency == 'USD' else 'S/.'
 
