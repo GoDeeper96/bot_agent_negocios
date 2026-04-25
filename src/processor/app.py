@@ -377,7 +377,7 @@ def _fetch_sunat_doc(full_number: str, sunat_doc_id: str, persona_id: str, perso
         pdf_url = (data.get('pdf') or {}).get('A4')
         if not pdf_url and doc_id and file_name:
             pdf_url = f"https://back.apisunat.com/documents/{doc_id}/getPDF/A4/{file_name}.PDF"
-        return {'xml': data.get('xml'), 'pdf_url': pdf_url}
+        return {'xml': data.get('xml'), 'cdr': data.get('cdr'), 'pdf_url': pdf_url}
 
     if sunat_doc_id:
         try:
@@ -426,12 +426,14 @@ def _handle_send_email(phone, session, sessions, wa, config):
         sessions.clear(phone)
         return
 
-    # Fetch XML (and updated PDF URL) from apisunat
+    # Fetch XML, CDR and updated PDF URL from apisunat
+    cdr_url = ''
     if config.get('sunat_persona_id') and config.get('sunat_persona_token'):
         doc_data = _fetch_sunat_doc(full_number, sunat_doc_id, config['sunat_persona_id'], config['sunat_persona_token'])
         xml_url  = doc_data.get('xml') or xml_url
+        cdr_url  = doc_data.get('cdr') or ''
         pdf_url  = doc_data.get('pdf_url') or pdf_url
-        logger.info(f"apisunat doc fetch: xml={xml_url} pdf={pdf_url}")
+        logger.info(f"apisunat doc fetch: xml={xml_url} cdr={cdr_url} pdf={pdf_url}")
 
     wa.send_text(phone, f"📧 Enviando {doc_label} {full_number} a *{email}*...")
 
@@ -441,6 +443,7 @@ def _handle_send_email(phone, session, sessions, wa, config):
         full_number=full_number,
         pdf_url=pdf_url,
         xml_url=xml_url or None,
+        cdr_url=cdr_url or None,
         ssm_prefix=os.environ['SSM_PREFIX'],
     )
 

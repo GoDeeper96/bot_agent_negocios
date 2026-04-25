@@ -6,8 +6,10 @@ Auth: OAuth2 refresh token stored in SSM (SecureString).
 Token rotation: if Microsoft issues a new refresh token, it's updated in SSM automatically.
 """
 import base64
+import io
 import logging
 import os
+import zipfile
 
 import boto3
 import requests
@@ -108,13 +110,25 @@ def _download_bytes(url: str, timeout: int = 15) -> bytes | None:
         return None
 
 
+def _unzip_first_file(zip_bytes: bytes) -> tuple[bytes, str] | tuple[None, None]:
+    """Extract the first file from a ZIP archive. Returns (file_bytes, filename)."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            name = zf.namelist()[0]
+            return zf.read(name), name
+    except Exception as e:
+        logger.warning(f"Could not unzip: {e}")
+        return None, None
+
+
 def send_factura_email(
     to_email: str,
-    doc_label: str,          # "Factura" or "Boleta"
-    full_number: str,        # e.g. "F149-00000011"
-    pdf_url: str,            # https://apisunat.com/pdf/...
-    xml_url: str | None,     # XML signed by SUNAT (may be None if still PENDIENTE)
+    doc_label: str,
+    full_number: str,
+    pdf_url: str,
+    xml_url: str | None,
     ssm_prefix: str,
+    cdr_url: str | None = None,
 ) -> bool:
     """
     Send factura/boleta email with PDF (and XML if available) via Microsoft Graph.
@@ -122,11 +136,22 @@ def send_factura_email(
     """
     try:
         pdf_bytes = _download_bytes(pdf_url) if pdf_url else None
-        xml_bytes = _download_bytes(xml_url) if xml_url else None
 
-        # Derive filename from URL: last path segment without extension
+        # Download and unzip XML
+        xml_bytes, xml_name = None, f"{full_number}.xml"
+        if xml_url:
+            xml_zip = _download_bytes(xml_url)
+            if xml_zip:
+                xml_bytes, xml_name = _unzip_first_file(xml_zip)
+
+        # Download and unzip CDR
+        cdr_bytes, cdr_name = None, f"R-{full_number}.xml"
+        if cdr_url:
+            cdr_zip = _download_bytes(cdr_url)
+            if cdr_zip:
+                cdr_bytes, cdr_name = _unzip_first_file(cdr_zip)
+
         pdf_name = pdf_url.split("/")[-1] if pdf_url else f"{full_number}.pdf"
-        xml_name = xml_url.split("/")[-1] if xml_url else f"{full_number}.xml"
 
         pdf_link_line = (
             f' Ver PDF: <a href="{pdf_url}">{pdf_url}</a>' if pdf_url and not pdf_bytes else ''
@@ -173,6 +198,13 @@ def send_factura_email(
                 "name":         xml_name,
                 "contentType":  "application/xml",
                 "contentBytes": base64.b64encode(xml_bytes).decode(),
+            })
+        if cdr_bytes:
+            attachments.append({
+                "@odata.type":  "#microsoft.graph.fileAttachment",
+                "name":         cdr_name,
+                "contentType":  "application/xml",
+                "contentBytes": base64.b64encode(cdr_bytes).decode(),
             })
 
         access_token = _get_access_token(ssm_prefix)
