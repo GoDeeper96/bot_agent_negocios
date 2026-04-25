@@ -231,16 +231,18 @@ def _dispatch(phone, text, session, sessions, wa, config):
             sessions.save(session)
             wa.send_text(phone, f"*{session.doc_type.capitalize()}* seleccionada ✅\nEnvíame los datos del cliente y productos.")
         else:
-            # Always show the menu, but if intent detected also run extraction immediately
+            # If intent detected → skip menu, go straight to extraction
+            # If no intent → show menu so user can pick doc type
             detected = _detect_doc_intent(text_lower)
             session.state = 'collecting'
             session.add_message(text)
             if detected:
                 session.doc_type = detected
-            sessions.save(session)
-            wa.send_text(phone, MENU_TEXT)
-            if detected:
+                sessions.save(session)
                 _handle_collecting(phone, None, session, sessions, wa, config)
+            else:
+                sessions.save(session)
+                wa.send_text(phone, MENU_TEXT)
         return
 
     if session.state == 'collecting':
