@@ -321,7 +321,8 @@ def _handle_submit(phone, session, sessions, wa, config):
         session.last_sale_id    = sale_id
         session.last_email      = extracted.get('customer', {}).get('email')
         session.last_pdf_url    = pdf_url
-        session.last_xml_url    = complete_resp.get('xmlUrl') or ''
+        session.last_xml_url       = complete_resp.get('xmlUrl') or ''
+        session.last_sunat_doc_id  = complete_resp.get('sunatDocumentId') or ''
         session.last_full_number = full_number
         session.last_doc_label  = doc_label
 
@@ -362,19 +363,42 @@ def _handle_submit(phone, session, sessions, wa, config):
 # State: email
 # ---------------------------------------------------------------------------
 
+def _fetch_xml_url(sunat_doc_id: str, persona_id: str, persona_token: str) -> str | None:
+    """Poll apisunat getById to retrieve XML URL once SUNAT has processed the document."""
+    import requests as _req
+    try:
+        resp = _req.get(
+            f"https://back.apisunat.com/documents/{sunat_doc_id}/getById",
+            params={"personaId": persona_id, "personaToken": persona_token},
+            timeout=10,
+        )
+        if resp.ok:
+            data = resp.json()
+            return data.get('xml') or data.get('xmlUrl')
+    except Exception as e:
+        logger.warning(f"getById failed for {sunat_doc_id}: {e}")
+    return None
+
+
 def _handle_send_email(phone, session, sessions, wa, config):
     from email_client import send_factura_email
 
-    pdf_url     = session.last_pdf_url
-    xml_url     = session.last_xml_url
-    email       = session.last_email
-    full_number = session.last_full_number or ''
-    doc_label   = session.last_doc_label or 'Factura'
+    pdf_url       = session.last_pdf_url
+    xml_url       = session.last_xml_url
+    email         = session.last_email
+    full_number   = session.last_full_number or ''
+    doc_label     = session.last_doc_label or 'Factura'
+    sunat_doc_id  = session.last_sunat_doc_id or ''
 
     if not email:
         wa.send_text(phone, "No hay correo registrado para el cliente.")
         sessions.clear(phone)
         return
+
+    # Try to fetch XML URL from apisunat if not yet available
+    if not xml_url and sunat_doc_id and config.get('sunat_persona_id') and config.get('sunat_persona_token'):
+        xml_url = _fetch_xml_url(sunat_doc_id, config['sunat_persona_id'], config['sunat_persona_token'])
+        logger.info(f"getById xml_url={xml_url}")
 
     wa.send_text(phone, f"📧 Enviando {doc_label} {full_number} a *{email}*...")
 

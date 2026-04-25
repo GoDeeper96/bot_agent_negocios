@@ -45,7 +45,8 @@ class Session:
         self.pending_sale = data.get('pending_sale', {})  # sale data ready to submit
         self.last_sale_id    = data.get('last_sale_id')      # saleId after creation
         self.last_pdf_url    = data.get('last_pdf_url')      # PDF URL after SUNAT
-        self.last_xml_url    = data.get('last_xml_url')      # XML URL after SUNAT
+        self.last_xml_url       = data.get('last_xml_url')         # XML URL after SUNAT
+        self.last_sunat_doc_id  = data.get('last_sunat_doc_id')     # apisunat documentId for polling
         self.last_email      = data.get('last_email')        # customer email for PDF send
         self.last_full_number = data.get('last_full_number') # e.g. "F149-00000011"
         self.last_doc_label  = data.get('last_doc_label')    # "Factura" or "Boleta"
@@ -66,7 +67,8 @@ class Session:
             'pending_sale': self.pending_sale,
             'last_sale_id':     self.last_sale_id,
             'last_pdf_url':     self.last_pdf_url,
-            'last_xml_url':     self.last_xml_url,
+            'last_xml_url':        self.last_xml_url,
+            'last_sunat_doc_id':   self.last_sunat_doc_id,
             'last_email':       self.last_email,
             'last_full_number': self.last_full_number,
             'last_doc_label':   self.last_doc_label,
