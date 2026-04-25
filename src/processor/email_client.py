@@ -287,7 +287,7 @@ def _build_cotizacion_html(extracted: dict, cot_number: str) -> str:
           <td colspan="3" style="padding:6px 12px;text-align:right;color:#555;">I.G.V. (18%):</td>
           <td style="padding:6px 12px;text-align:right;">{symbol}{igv:,.2f}</td>
         </tr>
-        <tr style="background:#1a4d8f;color:#fff;">
+        <tr style="background:#8b1a1a;color:#fff;">
           <td colspan="3" style="padding:8px 12px;text-align:right;font-weight:bold;">TOTAL A PAGAR:</td>
           <td style="padding:8px 12px;text-align:right;font-weight:bold;">{symbol}{total:,.2f} {currency}</td>
         </tr>"""
@@ -308,7 +308,7 @@ def _build_cotizacion_html(extracted: dict, cot_number: str) -> str:
     conditions_html = ""
     if conditions:
         conditions_html = f"""
-        <h3 style="color:#1a4d8f;margin-top:24px;">Condiciones Comerciales</h3>
+        <h3 style="color:#8b1a1a;margin-top:24px;">Condiciones Comerciales</h3>
         <table style="border-collapse:collapse;font-size:14px;">{''.join(conditions)}</table>"""
 
     return f"""\
@@ -320,7 +320,7 @@ def _build_cotizacion_html(extracted: dict, cot_number: str) -> str:
 
 <table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:16px;">
   <thead>
-    <tr style="background:#1a4d8f;color:#fff;">
+    <tr style="background:#8b1a1a;color:#fff;">
       <th style="padding:10px 12px;text-align:left;">Descripción</th>
       <th style="padding:10px 12px;text-align:center;">Cantidad</th>
       <th style="padding:10px 12px;text-align:right;">Precio Unit.</th>
