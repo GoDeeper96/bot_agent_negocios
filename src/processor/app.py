@@ -363,21 +363,52 @@ def _handle_submit(phone, session, sessions, wa, config):
 # State: email
 # ---------------------------------------------------------------------------
 
-def _fetch_xml_url(sunat_doc_id: str, persona_id: str, persona_token: str) -> str | None:
-    """Poll apisunat getById to retrieve XML URL once SUNAT has processed the document."""
+def _fetch_sunat_doc(full_number: str, sunat_doc_id: str, persona_id: str, persona_token: str) -> dict:
+    """
+    Fetch XML and PDF URLs from apisunat.
+    Tries getById first (if sunatDocumentId stored), then falls back to getAll by serie+number.
+    Returns dict with 'xml' and 'pdf_url' keys.
+    """
     import requests as _req
-    try:
-        resp = _req.get(
-            f"https://back.apisunat.com/documents/{sunat_doc_id}/getById",
-            params={"personaId": persona_id, "personaToken": persona_token},
-            timeout=10,
-        )
-        if resp.ok:
-            data = resp.json()
-            return data.get('xml') or data.get('xmlUrl')
-    except Exception as e:
-        logger.warning(f"getById failed for {sunat_doc_id}: {e}")
-    return None
+
+    def _parse(data: dict) -> dict:
+        doc_id = data.get('id') or sunat_doc_id
+        file_name = data.get('fileName', '')
+        pdf_url = (data.get('pdf') or {}).get('A4')
+        if not pdf_url and doc_id and file_name:
+            pdf_url = f"https://back.apisunat.com/documents/{doc_id}/getPDF/A4/{file_name}.PDF"
+        return {'xml': data.get('xml'), 'pdf_url': pdf_url}
+
+    if sunat_doc_id:
+        try:
+            resp = _req.get(
+                f"https://back.apisunat.com/documents/{sunat_doc_id}/getById",
+                params={"personaId": persona_id, "personaToken": persona_token},
+                timeout=10,
+            )
+            if resp.ok:
+                return _parse(resp.json())
+        except Exception as e:
+            logger.warning(f"getById failed: {e}")
+
+    # Fallback: look up by serie + number via getAll
+    if full_number and '-' in full_number:
+        serie, number = full_number.split('-', 1)
+        try:
+            resp = _req.get(
+                "https://back.apisunat.com/documents/getAll",
+                params={"personaId": persona_id, "personaToken": persona_token,
+                        "serie": serie, "number": number, "limit": 1},
+                timeout=10,
+            )
+            if resp.ok:
+                docs = resp.json()
+                if docs:
+                    return _parse(docs[0])
+        except Exception as e:
+            logger.warning(f"getAll fallback failed: {e}")
+
+    return {'xml': None, 'pdf_url': None}
 
 
 def _handle_send_email(phone, session, sessions, wa, config):
@@ -395,10 +426,12 @@ def _handle_send_email(phone, session, sessions, wa, config):
         sessions.clear(phone)
         return
 
-    # Try to fetch XML URL from apisunat if not yet available
-    if not xml_url and sunat_doc_id and config.get('sunat_persona_id') and config.get('sunat_persona_token'):
-        xml_url = _fetch_xml_url(sunat_doc_id, config['sunat_persona_id'], config['sunat_persona_token'])
-        logger.info(f"getById xml_url={xml_url}")
+    # Fetch XML (and updated PDF URL) from apisunat
+    if config.get('sunat_persona_id') and config.get('sunat_persona_token'):
+        doc_data = _fetch_sunat_doc(full_number, sunat_doc_id, config['sunat_persona_id'], config['sunat_persona_token'])
+        xml_url  = doc_data.get('xml') or xml_url
+        pdf_url  = doc_data.get('pdf_url') or pdf_url
+        logger.info(f"apisunat doc fetch: xml={xml_url} pdf={pdf_url}")
 
     wa.send_text(phone, f"📧 Enviando {doc_label} {full_number} a *{email}*...")
 
