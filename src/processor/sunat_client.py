@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 _COMPANY_RUC  = "20607960225"
 _COMPANY_NAME = "NEGOCIOS MULTIPLES LICHAN S.A.C."
-_COMPANY_ADDR = "CAL.LOS EUCALIPTOS MZA. A LOTE. 5 VILLA EL SALVADOR LIMA LIMA"
+_COMPANY_ADDR = "Av. Guillermo Billinghurts 1089-A, San Juan de Miraflores, Lima"
 
 _APISUNAT_URL = "https://back.apisunat.com/personas/v1/sendBill"
 

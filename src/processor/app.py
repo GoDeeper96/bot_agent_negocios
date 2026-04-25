@@ -488,7 +488,7 @@ def _handle_submit(phone, session, sessions, wa, config):
 # ---------------------------------------------------------------------------
 
 _GUIA_SERIE   = "T001"
-_COMPANY_ADDR = "CAL.LOS EUCALIPTOS MZA. A LOTE. 5 VILLA EL SALVADOR LIMA LIMA"
+_COMPANY_ADDR = "Av. Guillermo Billinghurts 1089-A, San Juan de Miraflores, Lima"
 
 
 def _next_guia_number(ssm_prefix: str) -> str:
