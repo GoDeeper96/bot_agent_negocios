@@ -84,7 +84,7 @@ _COMPANY_EMAIL = "negocios.lichan@outlook.com"
 _FACTURA_HTML_TMPL = """\
 <html><body style="font-family:Arial,sans-serif;font-size:14px;color:#333;">
 <p>Estimados, buenas tardes,</p>
-<p>Se adjunta {doc_label} <strong>{full_number}</strong>.</p>
+<p>Se adjunta {doc_label} <strong>{full_number}</strong>.{pdf_link_line}</p>
 <p>Saludos cordiales / Best regards</p>
 <br>
 <img src="cid:logo_lichan" alt="{company}" style="max-width:220px;"><br><br>
@@ -128,9 +128,13 @@ def send_factura_email(
         pdf_name = pdf_url.split("/")[-1] if pdf_url else f"{full_number}.pdf"
         xml_name = xml_url.split("/")[-1] if xml_url else f"{full_number}.xml"
 
+        pdf_link_line = (
+            f' Ver PDF: <a href="{pdf_url}">{pdf_url}</a>' if pdf_url and not pdf_bytes else ''
+        )
         html_body = _FACTURA_HTML_TMPL.format(
             doc_label=doc_label,
             full_number=full_number,
+            pdf_link_line=pdf_link_line,
             company=_COMPANY_NAME,
             ruc=_COMPANY_RUC,
             address=_COMPANY_ADDR,

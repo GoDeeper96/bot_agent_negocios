@@ -376,10 +376,6 @@ def _handle_send_email(phone, session, sessions, wa, config):
         sessions.clear(phone)
         return
 
-    if not pdf_url:
-        wa.send_text(phone, "PDF aún no disponible. Intenta en unos segundos.")
-        return
-
     wa.send_text(phone, f"📧 Enviando {doc_label} {full_number} a *{email}*...")
 
     ok = send_factura_email(
