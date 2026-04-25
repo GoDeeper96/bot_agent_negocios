@@ -488,7 +488,7 @@ def _handle_submit(phone, session, sessions, wa, config):
 # ---------------------------------------------------------------------------
 
 _GUIA_SERIE   = "T001"
-_COMPANY_ADDR = "Av. Guillermo Billinghurts 1089-A, San Juan de Miraflores, Lima"
+_COMPANY_ADDR = "CAL.LOS EUCALIPTOS MZA. A LOTE. 5 VILLA EL SALVADOR LIMA LIMA"
 
 
 def _next_guia_number(ssm_prefix: str) -> str:
@@ -904,7 +904,7 @@ def _build_product_name(item: dict) -> str:
 
 _COMPANY_NAME  = "NEGOCIOS MULTIPLES LICHAN S.A.C."
 _COMPANY_RUC   = "20607960225"
-_COMPANY_TEL   = "960-113-935"
+_COMPANY_TEL   = "960113935"
 _COMPANY_EMAIL = "negocios.lichan@outlook.com"
 
 

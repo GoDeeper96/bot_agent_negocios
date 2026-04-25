@@ -9,8 +9,8 @@ from fpdf import FPDF
 
 COMPANY_NAME  = "NEGOCIOS MULTIPLES LICHAN S.A.C."
 COMPANY_RUC   = "20607960225"
-COMPANY_ADDR  = "Av. Guillermo Billinghurts 1089-A, San Juan de Miraflores, Lima"
-COMPANY_TEL   = "960-113-935"
+COMPANY_ADDR  = "CAL.LOS EUCALIPTOS MZA. A LOTE. 5 VILLA EL SALVADOR LIMA LIMA"
+COMPANY_TEL   = "960113935"
 COMPANY_EMAIL = "negocios.lichan@outlook.com"
 
 _DIR         = os.path.dirname(__file__)
