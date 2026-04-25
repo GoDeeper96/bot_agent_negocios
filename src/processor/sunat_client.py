@@ -296,7 +296,9 @@ class SunatClient:
         }
         logger.info(f"Sending to apisunat: {doc['fileName']}")
         resp = requests.post(_APISUNAT_URL, json=payload, timeout=30)
-        resp.raise_for_status()
+        if not resp.ok:
+            logger.error(f"apisunat {resp.status_code}: {resp.text[:500]}")
+            resp.raise_for_status()
         result = resp.json()
         logger.info(f"apisunat response: {str(result)[:400]}")
 
