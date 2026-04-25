@@ -99,6 +99,7 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura (sin markdown, sin 
 Para missing_fields incluye:
 - "customer_name" si falta nombre del cliente
 - "customer_ruc" si es factura y falta RUC
+- "customer_doc" si es cotizacion o boleta y falta tanto RUC como DNI (se requiere uno de los dos)
 - "customer_email" si falta email (para envío de cotización)
 - "items" si no hay productos
 - "quantity" si falta cantidad de algún producto

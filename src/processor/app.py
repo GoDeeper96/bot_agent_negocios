@@ -308,10 +308,17 @@ def _handle_collecting(phone, text, session, sessions, wa, config):
     if session.doc_type and 'doc_type' in missing:
         missing = [f for f in missing if f != 'doc_type']
 
-    # RUC only required for factura — not for cotizacion, boleta, guia
+    # RUC only required for factura — cotizacion/boleta accept RUC or DNI
     doc_now = extracted.get('doc_type')
     if doc_now in ('cotizacion', 'boleta', 'guia'):
         missing = [f for f in missing if f != 'customer_ruc']
+    # For cotizacion/boleta: require at least one of RUC or DNI
+    if doc_now in ('cotizacion', 'boleta'):
+        cust = extracted.get('customer', {})
+        if not cust.get('ruc') and not cust.get('dni'):
+            missing = [f for f in missing if f != 'customer_ruc']
+            if 'customer_doc' not in missing:
+                missing.append('customer_doc')
 
     # Email is optional — never block the flow on it
     missing = [f for f in missing if f != 'customer_email']
@@ -853,6 +860,7 @@ def _format_missing(missing: list) -> str:
     labels = {
         'customer_name':  '👤 Nombre del cliente',
         'customer_ruc':   '🔢 RUC del cliente (requerido para factura)',
+        'customer_doc':   '🔢 RUC o DNI del cliente',
         'customer_email': '📧 Correo del cliente (para envío de PDF)',
         'items':          '📦 Descripción de productos',
         'quantity':       '🔢 Cantidad del producto',
