@@ -26,6 +26,7 @@ REGLAS GENERALES:
 - Si menciona "GUIA" o "GUÍA" o "GUIA DE REMISION" → doc_type = "guia"
 - Si no especifica → doc_type = "unknown"
 - Cantidades: interpreta unidades como KGS, KG, UNIDADES, CAJAS, TN, LT, etc.
+- Cualquier dirección de email mencionada en el mensaje es SIEMPRE el email del cliente (destinatario de la cotización/factura). El remitente del mensaje es el vendedor de Lichan, no el cliente.
 
 REGLAS PARA COTIZACIONES:
 - "Atención:", "Att:", "Attn:", "A/C:" indica contact_persons (puede ser más de uno, separados por "/").
