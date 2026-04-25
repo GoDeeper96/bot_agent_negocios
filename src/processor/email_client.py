@@ -237,6 +237,118 @@ def send_factura_email(
         return False
 
 
+def _build_cotizacion_html(extracted: dict, cot_number: str) -> str:
+    """Build HTML body for cotización email with product table and Lichan footer."""
+    cust      = extracted.get('customer', {})
+    items     = extracted.get('items', [])
+    currency  = extracted.get('currency', 'PEN')
+    inc_igv   = extracted.get('price_includes_igv', False)
+    symbol    = '$' if currency == 'USD' else 'S/.'
+    contact   = extracted.get('contact_persons') or cust.get('contact_person')
+    validity  = extracted.get('validity_days')
+    greeting  = f"Estimado/a {contact}" if contact else f"Estimados {cust.get('name', '').upper()}"
+
+    total_base = sum(float(i.get('quantity', 0)) * float(i.get('unit_price', 0)) for i in items)
+    if inc_igv:
+        base_display = round(total_base / 1.18, 2)
+        igv   = round(total_base - base_display, 2)
+        total = total_base
+    else:
+        base_display = total_base
+        igv   = round(total_base * 0.18, 2)
+        total = round(total_base + igv, 2)
+
+    # Product rows
+    rows_html = ""
+    for item in items:
+        qty   = float(item.get('quantity', 0))
+        price = float(item.get('unit_price', 0))
+        desc  = item.get('description', '')
+        if item.get('presentation'):
+            desc += f"<br><small style='color:#666'>{item['presentation']}</small>"
+        if item.get('origin'):
+            desc += f"<br><small style='color:#666'>Proc: {item['origin']}</small>"
+        line_total = qty * price
+        rows_html += f"""
+        <tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;">{desc}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;">{qty:g} {item.get('unit','')}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">{symbol}{price:,.2f}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:bold;">{symbol}{line_total:,.2f}</td>
+        </tr>"""
+
+    # Totals rows
+    totals_html = f"""
+        <tr style="background:#f9f9f9;">
+          <td colspan="3" style="padding:6px 12px;text-align:right;color:#555;">Subtotal:</td>
+          <td style="padding:6px 12px;text-align:right;">{symbol}{base_display:,.2f}</td>
+        </tr>
+        <tr style="background:#f9f9f9;">
+          <td colspan="3" style="padding:6px 12px;text-align:right;color:#555;">I.G.V. (18%):</td>
+          <td style="padding:6px 12px;text-align:right;">{symbol}{igv:,.2f}</td>
+        </tr>
+        <tr style="background:#1a4d8f;color:#fff;">
+          <td colspan="3" style="padding:8px 12px;text-align:right;font-weight:bold;">TOTAL A PAGAR:</td>
+          <td style="padding:8px 12px;text-align:right;font-weight:bold;">{symbol}{total:,.2f} {currency}</td>
+        </tr>"""
+
+    # Commercial conditions
+    conditions = []
+    global_origin = extracted.get('global_origin') or (items[0].get('origin') if items else None)
+    if global_origin:
+        conditions.append(f"<tr><td style='padding:4px 12px;color:#555;width:140px;'>Procedencia:</td><td style='padding:4px 12px;font-weight:bold;'>{global_origin}</td></tr>")
+    if extracted.get('delivery'):
+        conditions.append(f"<tr><td style='padding:4px 12px;color:#555;'>Entrega:</td><td style='padding:4px 12px;font-weight:bold;'>{extracted['delivery']}</td></tr>")
+    payment = extracted.get('payment_detail') or extracted.get('payment_terms')
+    if payment:
+        conditions.append(f"<tr><td style='padding:4px 12px;color:#555;'>Forma de pago:</td><td style='padding:4px 12px;font-weight:bold;'>{payment}</td></tr>")
+    if validity:
+        conditions.append(f"<tr><td style='padding:4px 12px;color:#555;'>Validez:</td><td style='padding:4px 12px;font-weight:bold;'>{validity} días calendario</td></tr>")
+
+    conditions_html = ""
+    if conditions:
+        conditions_html = f"""
+        <h3 style="color:#1a4d8f;margin-top:24px;">Condiciones Comerciales</h3>
+        <table style="border-collapse:collapse;font-size:14px;">{''.join(conditions)}</table>"""
+
+    return f"""\
+<html>
+<body style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:700px;margin:0 auto;">
+
+<p>{greeting},</p>
+<p>Por medio del presente le hacemos llegar nuestra cotización <strong>{cot_number}</strong> por los productos solicitados:</p>
+
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:16px;">
+  <thead>
+    <tr style="background:#1a4d8f;color:#fff;">
+      <th style="padding:10px 12px;text-align:left;">Descripción</th>
+      <th style="padding:10px 12px;text-align:center;">Cantidad</th>
+      <th style="padding:10px 12px;text-align:right;">Precio Unit.</th>
+      <th style="padding:10px 12px;text-align:right;">Total</th>
+    </tr>
+  </thead>
+  <tbody>{rows_html}</tbody>
+  <tfoot>{totals_html}</tfoot>
+</table>
+
+{conditions_html}
+
+<p style="margin-top:24px;">Adjunto encontrará el documento formal en PDF.<br>
+Quedamos atentos a su confirmación para generar la orden correspondiente.</p>
+
+<p>Saludos cordiales / Best regards</p>
+<br>
+<img src="cid:logo_lichan" alt="{_COMPANY_NAME}" style="max-width:220px;"><br><br>
+<strong>{_COMPANY_NAME}</strong><br>
+RUC: {_COMPANY_RUC}<br>
+{_COMPANY_ADDR}<br>
+Telf.: {_COMPANY_PHONE}<br>
+Email: <a href="mailto:{_COMPANY_EMAIL}">{_COMPANY_EMAIL}</a>
+
+</body>
+</html>"""
+
+
 def send_cotizacion_email(
     to_email: str,
     subject: str,
@@ -244,27 +356,50 @@ def send_cotizacion_email(
     pdf_bytes: bytes,
     pdf_filename: str,
     ssm_prefix: str,
+    extracted: dict = None,
+    cot_number: str = "",
 ) -> bool:
-    """Send email with PDF attachment via Microsoft Graph API. Returns True on success."""
+    """Send cotización email with PDF attachment via Microsoft Graph API. Returns True on success."""
     try:
         access_token = _get_access_token(ssm_prefix)
+
+        if extracted is not None:
+            html_body  = _build_cotizacion_html(extracted, cot_number)
+            body_block = {"contentType": "HTML", "content": html_body}
+        else:
+            body_block = {"contentType": "Text", "content": body_text}
+
+        attachments = []
+
+        # Inline logo
+        _logo_path = os.path.join(os.path.dirname(__file__), "logo_negocios_multiples_lichan.png")
+        try:
+            with open(_logo_path, "rb") as _f:
+                _logo_bytes = _f.read()
+            attachments.append({
+                "@odata.type":  "#microsoft.graph.fileAttachment",
+                "name":         "logo_lichan.png",
+                "contentType":  "image/png",
+                "contentId":    "logo_lichan",
+                "isInline":     True,
+                "contentBytes": base64.b64encode(_logo_bytes).decode(),
+            })
+        except Exception as _e:
+            logger.warning(f"Could not load logo: {_e}")
+
+        attachments.append({
+            "@odata.type":  "#microsoft.graph.fileAttachment",
+            "name":         pdf_filename,
+            "contentType":  "application/pdf",
+            "contentBytes": base64.b64encode(pdf_bytes).decode(),
+        })
 
         payload = {
             "message": {
                 "subject": subject,
-                "body": {
-                    "contentType": "Text",
-                    "content": body_text,
-                },
-                "toRecipients": [
-                    {"emailAddress": {"address": to_email}}
-                ],
-                "attachments": [{
-                    "@odata.type":  "#microsoft.graph.fileAttachment",
-                    "name":         pdf_filename,
-                    "contentType":  "application/pdf",
-                    "contentBytes": base64.b64encode(pdf_bytes).decode(),
-                }],
+                "body": body_block,
+                "toRecipients": [{"emailAddress": {"address": to_email}}],
+                "attachments": attachments,
             }
         }
 
@@ -278,9 +413,9 @@ def send_cotizacion_email(
             timeout=30,
         )
         resp.raise_for_status()
-        logger.info(f"Graph API email sent to {to_email} | {subject}")
+        logger.info(f"Graph API cotizacion email sent to {to_email} | {subject}")
         return True
 
     except Exception as e:
-        logger.error(f"Graph API send_email failed → {to_email}: {e}")
+        logger.error(f"Graph API send_cotizacion_email failed → {to_email}: {e}")
         return False

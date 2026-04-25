@@ -924,10 +924,12 @@ def _handle_send_cotizacion_email(phone, session, sessions, wa, config):
         ok = send_cotizacion_email(
             to_email=to_email,
             subject=subject,
-            body_text=_build_email_body(extracted, cot_number),
+            body_text="",
             pdf_bytes=pdf_bytes,
             pdf_filename=pdf_filename,
             ssm_prefix=os.environ['SSM_PREFIX'],
+            extracted=extracted,
+            cot_number=cot_number,
         )
         if ok:
             wa.send_text(phone, f"✅ Cotización *{cot_number}* enviada a *{to_email}*")
