@@ -21,7 +21,6 @@ from auth import get_token
 from claude_client import GeminiClient
 from pos_api import PosApiClient, PosApiError
 from session import Session, SessionManager
-from sunat_client import SunatClient
 from whatsapp import WhatsAppClient
 
 logger = logging.getLogger()
@@ -309,51 +308,21 @@ def _handle_submit(phone, session, sessions, wa, config):
             'receivedAmount': total_soles,
         })
 
-        # 6. Complete sale — assigns document number (internal SUNAT path may also run)
+        # 6. Complete sale — assigns document number and submits to SUNAT internally
         complete_resp = pos.complete_sale(sale_id, {})
         logger.info(f"complete_sale response: {str(complete_resp)[:400]}")
 
-        full_number = complete_resp.get('documentNumber') or complete_resp.get('documentFullNumber', '')
-        sale_data   = complete_resp.get('sale', {})
-        logger.info(f"Parsed: full_number={full_number}")
+        full_number  = complete_resp.get('documentNumber') or complete_resp.get('documentFullNumber', '')
+        sunat_status = complete_resp.get('sunatStatus', '')   # 'accepted', 'pending', 'rejected', None
+        sunat_msg    = complete_resp.get('sunatMessage', '') or ''
+        logger.info(f"Parsed: full_number={full_number} sunatStatus={sunat_status}")
 
         session.last_sale_id = sale_id
         session.last_email   = extracted.get('customer', {}).get('email')
 
-        # 7. Submit directly to SUNAT via apisunat
-        sunat_ok  = False
-        sunat_msg = ''
-        if full_number and config.get('sunat_persona_id') and config.get('sunat_persona_token'):
-            parts = full_number.split('-')
-            if len(parts) == 2:
-                doc_series, doc_number = parts[0], parts[1]
-                sunat = SunatClient(config['sunat_persona_id'], config['sunat_persona_token'])
-                customer_scheme = '6' if (customer.get('documentType') or 'RUC') == 'RUC' else '1'
-                try:
-                    sunat_resp = sunat.send_invoice(
-                        doc_type_code=doc_type_code,
-                        series=doc_series,
-                        number=doc_number,
-                        currency=currency,
-                        customer_scheme_id=customer_scheme,
-                        customer_doc_number=customer.get('documentNumber', ''),
-                        customer_name=customer.get('name', ''),
-                        customer_address=customer.get('address', ''),
-                        items=items,
-                        price_includes_igv=price_includes_igv,
-                    )
-                    sunat_ok  = sunat_resp.get('accepted', False)
-                    sunat_msg = '' if sunat_ok else str(sunat_resp.get('faults', ''))[:150]
-                    if sunat_resp.get('pdfUrl'):
-                        session.last_pdf_url = sunat_resp['pdfUrl']
-                    logger.info(f"apisunat: accepted={sunat_ok} pending={sunat_resp.get('pending')}")
-                except Exception as e:
-                    logger.exception(f"apisunat error: {e}")
-                    sunat_msg = str(e)[:150]
-        else:
-            logger.warning("apisunat skipped: missing credentials or document number")
-
         sessions.save(session)
+
+        sunat_ok = sunat_status in ('accepted', 'sent', 'pending')
 
         if sunat_ok or (full_number and not sunat_msg):
             session.state = 'email'
