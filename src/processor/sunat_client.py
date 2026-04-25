@@ -255,6 +255,174 @@ def build_document(
     return {"fileName": file_name, "documentBody": body}
 
 
+# ---------------------------------------------------------------------------
+# Ubigeo lookup (common Lima/Peru districts)
+# ---------------------------------------------------------------------------
+_UBIGEO = {
+    # Lima province
+    "lima":                  "150101",
+    "san juan de miraflores": "150130",
+    "villa el salvador":     "150142",
+    "villa maria del triunfo": "150141",
+    "chorrillos":            "150108",
+    "surco":                 "150137", "santiago de surco": "150137",
+    "miraflores":            "150122",
+    "san borja":             "150131",
+    "san isidro":            "150133",
+    "la molina":             "150113",
+    "ate":                   "150103",
+    "san luis":              "150134",
+    "el agustino":           "150110",
+    "la victoria":           "150116",
+    "lince":                 "150119",
+    "breña":                 "150105",
+    "jesus maria":           "150112",
+    "magdalena":             "150120",
+    "pueblo libre":          "150126",
+    "san miguel":            "150135",
+    "callao":                "070101",
+    # Other departments (abbreviated)
+    "trujillo":              "130101",
+    "arequipa":              "040101",
+    "chiclayo":              "140101",
+    "piura":                 "200101",
+    "cusco":                 "080101",
+    "iquitos":               "160101",
+    "huancayo":              "120101",
+}
+
+def _ubigeo(district: str) -> str:
+    """Return SUNAT ubigeo code for a district name, default Lima."""
+    if not district:
+        return "150101"
+    return _UBIGEO.get(district.lower().strip(), "150101")
+
+
+# ---------------------------------------------------------------------------
+# Guia de Remision builder
+# ---------------------------------------------------------------------------
+
+def build_guia_document(
+    serie: str,
+    number: str,
+    receiver_ruc: str,
+    receiver_name: str,
+    items: list,                 # [{description, quantity, unit}]
+    total_weight_kg: float,
+    departure_address: str,
+    departure_ubigeo: str,
+    arrival_address: str,
+    arrival_ubigeo: str,
+    transport_date: str,         # YYYY-MM-DD
+    driver_firstname: str,
+    driver_lastname: str,
+    driver_dni: str,
+    driver_license: str,         # licencia de conducir
+    vehicle_plate: str,
+    transport_mode: str = "02",  # 01=privado, 02=público
+    issue_date: str = None,
+    issue_time: str = None,
+) -> dict:
+    """Build apisunat payload for Guia de Remision Remitente (type 09)."""
+    now = datetime.now()
+    issue_date  = issue_date  or now.strftime("%Y-%m-%d")
+    issue_time  = issue_time  or now.strftime("%H:%M:%S")
+    doc_id      = f"{serie}-{number}"
+    file_name   = f"{_COMPANY_RUC}-09-{serie}-{number}"
+
+    lines = []
+    for idx, item in enumerate(items, 1):
+        qty  = float(item["quantity"])
+        unit = _uom(item.get("unit", ""))
+        lines.append({
+            "cbc:ID": {"_text": idx},
+            "cbc:DeliveredQuantity": {
+                "_attributes": {"unitCode": unit},
+                "_text": qty,
+            },
+            "cac:OrderLineReference": {"cbc:LineID": {"_text": idx}},
+            "cac:Item": {"cbc:Description": {"_text": item.get("description", "Producto")}},
+        })
+
+    body = {
+        "cbc:UBLVersionID":          {"_text": "2.1"},
+        "cbc:CustomizationID":       {"_text": "2.0"},
+        "cbc:ID":                    {"_text": doc_id},
+        "cbc:IssueDate":             {"_text": issue_date},
+        "cbc:IssueTime":             {"_text": issue_time},
+        "cbc:DespatchAdviceTypeCode": {"_text": "09"},
+        "cac:DespatchSupplierParty": {
+            "cac:Party": {
+                "cac:PartyIdentification": {
+                    "cbc:ID": {"_attributes": {"schemeID": "6"}, "_text": _COMPANY_RUC}
+                },
+                "cac:PartyLegalEntity": {
+                    "cbc:RegistrationName": {"_text": _COMPANY_NAME},
+                    "cac:RegistrationAddress": {
+                        "cac:AddressLine": {"cbc:Line": {"_text": _COMPANY_ADDR}}
+                    },
+                },
+            }
+        },
+        "cac:DeliveryCustomerParty": {
+            "cac:Party": {
+                "cac:PartyIdentification": {
+                    "cbc:ID": {"_attributes": {"schemeID": "6"}, "_text": receiver_ruc}
+                },
+                "cac:PartyLegalEntity": {
+                    "cbc:RegistrationName": {"_text": receiver_name.upper()}
+                },
+            }
+        },
+        "cac:Shipment": {
+            "cbc:ID":                  {"_text": "SUNAT_Envio"},
+            "cbc:HandlingCode":        {"_text": "01"},
+            "cbc:GrossWeightMeasure":  {
+                "_attributes": {"unitCode": "KGM"},
+                "_text": round(float(total_weight_kg), 2),
+            },
+            "cac:ShipmentStage": {
+                "cbc:TransportModeCode": {"_text": transport_mode},
+                "cac:TransitPeriod": {
+                    "cbc:StartDate": {"_text": transport_date}
+                },
+                "cac:DriverPerson": [{
+                    "cbc:ID": {
+                        "_attributes": {"schemeID": "1"},
+                        "_text": driver_dni,
+                    },
+                    "cbc:FirstName":  {"_text": driver_firstname.upper()},
+                    "cbc:FamilyName": {"_text": driver_lastname.upper()},
+                    "cbc:JobTitle":   {"_text": "Principal"},
+                    "cac:IdentityDocumentReference": {
+                        "cbc:ID": {"_text": driver_license.upper()}
+                    },
+                }],
+            },
+            "cac:Delivery": {
+                "cac:DeliveryAddress": {
+                    "cbc:ID": {"_text": arrival_ubigeo},
+                    "cac:AddressLine": {"cbc:Line": {"_text": arrival_address}},
+                },
+                "cac:Despatch": {
+                    "cac:DespatchAddress": {
+                        "cbc:ID": {"_text": departure_ubigeo},
+                        "cac:AddressLine": {"cbc:Line": {"_text": departure_address}},
+                    }
+                },
+            },
+            "cac:TransportHandlingUnit": {
+                "cac:TransportEquipment": {
+                    "cbc:ID": {"_text": vehicle_plate.upper()}
+                }
+            },
+        },
+        "cac:DespatchLine": lines,
+    }
+
+    return {"fileName": file_name, "documentBody": body}
+
+
 class SunatClient:
     def __init__(self, persona_id: str, persona_token: str):
         self._persona_id = persona_id
@@ -317,4 +485,73 @@ class SunatClient:
             "xmlUrl":  result.get("xml"),
             "faults":  faults,
             "raw":     result,
+        }
+
+    def send_guia(
+        self,
+        serie: str,
+        number: str,
+        receiver_ruc: str,
+        receiver_name: str,
+        items: list,
+        total_weight_kg: float,
+        departure_address: str,
+        departure_ubigeo: str,
+        arrival_address: str,
+        arrival_ubigeo: str,
+        transport_date: str,
+        driver_firstname: str,
+        driver_lastname: str,
+        driver_dni: str,
+        driver_license: str,
+        vehicle_plate: str,
+        transport_mode: str = "02",
+    ) -> dict:
+        """Submit guia de remision to apisunat. Returns the API response dict."""
+        doc = build_guia_document(
+            serie=serie,
+            number=number,
+            receiver_ruc=receiver_ruc,
+            receiver_name=receiver_name,
+            items=items,
+            total_weight_kg=total_weight_kg,
+            departure_address=departure_address,
+            departure_ubigeo=departure_ubigeo,
+            arrival_address=arrival_address,
+            arrival_ubigeo=arrival_ubigeo,
+            transport_date=transport_date,
+            driver_firstname=driver_firstname,
+            driver_lastname=driver_lastname,
+            driver_dni=driver_dni,
+            driver_license=driver_license,
+            vehicle_plate=vehicle_plate,
+            transport_mode=transport_mode,
+        )
+        payload = {
+            "personaId":    self._persona_id,
+            "personaToken": self._token,
+            "fileName":     doc["fileName"],
+            "documentBody": doc["documentBody"],
+        }
+        import json as _json
+        logger.info(f"Sending guia to apisunat: {doc['fileName']}")
+        logger.info(f"apisunat guia payload: {_json.dumps(payload, ensure_ascii=False)[:2000]}")
+        resp = requests.post(_APISUNAT_URL, json=payload, timeout=30)
+        if not resp.ok:
+            logger.error(f"apisunat guia {resp.status_code}: {resp.text[:500]}")
+            resp.raise_for_status()
+        result = resp.json()
+        logger.info(f"apisunat guia response: {str(result)[:400]}")
+
+        status = result.get("status", "")
+        faults = result.get("faults") or []
+        accepted = status not in ("RECHAZADO",) and not faults
+
+        return {
+            "accepted":   accepted,
+            "documentId": result.get("documentId"),
+            "pdfUrl":     result.get("pdf", {}).get("A4") or result.get("pdfUrl"),
+            "xmlUrl":     result.get("xml"),
+            "faults":     faults,
+            "raw":        result,
         }

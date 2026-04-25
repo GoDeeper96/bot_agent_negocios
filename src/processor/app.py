@@ -21,6 +21,7 @@ from auth import get_token
 from claude_client import GeminiClient
 from pos_api import PosApiClient, PosApiError
 from session import Session, SessionManager
+from sunat_client import SunatClient, _ubigeo
 from whatsapp import WhatsAppClient
 
 logger = logging.getLogger()
@@ -213,10 +214,13 @@ def _handle_collecting(phone, text, session, sessions, wa, config):
         sessions.save(session)
     else:
         session.state = 'confirming'
-        is_cotizacion = extracted.get('doc_type') == 'cotizacion'
-        if is_cotizacion:
+        doc_type_now = extracted.get('doc_type')
+        if doc_type_now == 'cotizacion':
             preview      = _format_cotizacion_preview(extracted)
             confirm_text = "¿Confirmar datos? Responde *sí* o *no*\n_Escribe *0* para cancelar._"
+        elif doc_type_now == 'guia':
+            preview      = _format_guia_preview(extracted)
+            confirm_text = "¿Confirmar y emitir guía? Responde *sí* o *no*\n_Escribe *0* para cancelar._"
         else:
             preview      = _format_full_preview(extracted)
             confirm_text = "¿Confirmar y enviar? Responde *sí* o *no*\n_Escribe *0* para cancelar._"
@@ -229,8 +233,12 @@ def _handle_collecting(phone, text, session, sessions, wa, config):
 # ---------------------------------------------------------------------------
 
 def _handle_submit(phone, session, sessions, wa, config):
-    if (session.doc_type or session.extracted.get('doc_type')) == 'cotizacion':
+    doc_type_now = session.doc_type or session.extracted.get('doc_type')
+    if doc_type_now == 'cotizacion':
         _handle_cotizacion_confirmed(phone, session, sessions, wa, config)
+        return
+    if doc_type_now == 'guia':
+        _handle_guia_submit(phone, session, sessions, wa, config)
         return
 
     wa.send_text(phone, "⏳ Procesando...")
@@ -356,6 +364,125 @@ def _handle_submit(phone, session, sessions, wa, config):
     except Exception as e:
         logger.exception(f"Unexpected error during submit: {e}")
         wa.send_text(phone, "❌ Error inesperado. Por favor intenta de nuevo.")
+        sessions.clear(phone)
+
+
+# ---------------------------------------------------------------------------
+# Guia de Remision helpers
+# ---------------------------------------------------------------------------
+
+_GUIA_SERIE   = "T001"
+_COMPANY_ADDR = "CAL.LOS EUCALIPTOS MZA. A LOTE. 5 VILLA EL SALVADOR LIMA LIMA"
+
+
+def _next_guia_number(ssm_prefix: str) -> str:
+    """Atomically increment and return the next guia number (zero-padded to 8 digits)."""
+    ssm = boto3.client('ssm', region_name='us-west-2')
+    param_name = f"{ssm_prefix}/guia_counter"
+    try:
+        resp = ssm.get_parameter(Name=param_name)
+        current = int(resp['Parameter']['Value'])
+    except Exception:
+        current = 0
+    next_val = current + 1
+    ssm.put_parameter(Name=param_name, Value=str(next_val), Type='String', Overwrite=True)
+    return str(next_val).zfill(8)
+
+
+def _format_guia_preview(extracted: dict) -> str:
+    guia = extracted.get('guia') or {}
+    items = extracted.get('items', [])
+    sep = "─────────────────────"
+    lines = [
+        "*🚚 GUÍA DE REMISIÓN*",
+        sep,
+        f"👤 *{(guia.get('receiver_name') or '-').upper()}*",
+    ]
+    if guia.get('receiver_ruc'):
+        lines.append(f"   RUC: {guia['receiver_ruc']}")
+    lines.append(sep)
+    lines.append("📦 *BIENES*")
+    for item in items:
+        qty = item.get('quantity', '?')
+        unit = item.get('unit', '')
+        lines.append(f"  • {item.get('description', '?')} — {qty} {unit}")
+    if guia.get('total_weight_kg'):
+        lines.append(f"   ⚖️ Peso total: {guia['total_weight_kg']} KG")
+    lines.append(sep)
+    if guia.get('departure_address'):
+        lines.append(f"🏭 Partida:  {guia['departure_address']}")
+    if guia.get('arrival_address'):
+        lines.append(f"📍 Llegada:  {guia['arrival_address']}")
+    if guia.get('transport_date'):
+        lines.append(f"📅 Fecha traslado: {guia['transport_date']}")
+    lines.append(sep)
+    driver_name = ' '.join(filter(None, [guia.get('driver_firstname'), guia.get('driver_lastname')]))
+    if driver_name:
+        lines.append(f"🚗 Conductor: {driver_name}")
+    if guia.get('driver_dni'):
+        lines.append(f"   DNI: {guia['driver_dni']}")
+    if guia.get('driver_license'):
+        lines.append(f"   Licencia: {guia['driver_license']}")
+    if guia.get('vehicle_plate'):
+        lines.append(f"   Placa: {guia['vehicle_plate'].upper()}")
+    return '\n'.join(lines)
+
+
+def _handle_guia_submit(phone, session, sessions, wa, config):
+    wa.send_text(phone, "⏳ Emitiendo guía de remisión...")
+    extracted = session.extracted
+    guia = extracted.get('guia') or {}
+
+    try:
+        ssm_prefix = os.environ['SSM_PREFIX']
+        number = _next_guia_number(ssm_prefix)
+
+        sunat = SunatClient(
+            persona_id=config['sunat_persona_id'],
+            persona_token=config['sunat_persona_token'],
+        )
+
+        # Departure ubigeo: use extracted or default Lima Cercado
+        dep_ubigeo = guia.get('departure_ubigeo') or _ubigeo(guia.get('departure_address', ''))
+        arr_ubigeo = guia.get('arrival_ubigeo') or _ubigeo(guia.get('arrival_address', ''))
+
+        result = sunat.send_guia(
+            serie=_GUIA_SERIE,
+            number=number,
+            receiver_ruc=guia.get('receiver_ruc', ''),
+            receiver_name=guia.get('receiver_name', ''),
+            items=extracted.get('items', []),
+            total_weight_kg=float(guia.get('total_weight_kg') or 1),
+            departure_address=guia.get('departure_address', _COMPANY_ADDR),
+            departure_ubigeo=dep_ubigeo,
+            arrival_address=guia.get('arrival_address', ''),
+            arrival_ubigeo=arr_ubigeo,
+            transport_date=guia.get('transport_date') or datetime.now().strftime('%Y-%m-%d'),
+            driver_firstname=guia.get('driver_firstname', ''),
+            driver_lastname=guia.get('driver_lastname', ''),
+            driver_dni=guia.get('driver_dni', ''),
+            driver_license=guia.get('driver_license', ''),
+            vehicle_plate=guia.get('vehicle_plate', ''),
+            transport_mode=guia.get('transport_mode', '02'),
+        )
+
+        full_number = f"{_GUIA_SERIE}-{number}"
+        faults = result.get('faults', [])
+        if faults:
+            fault_msg = '; '.join(str(f) for f in faults)
+            wa.send_text(phone, f"⚠️ Guía *{full_number}* emitida con observaciones SUNAT:\n{fault_msg}")
+        else:
+            msg = f"✅ Guía de remisión *{full_number}* emitida correctamente."
+            pdf_url = result.get('pdfUrl')
+            if pdf_url:
+                msg += f"\n\n📄 PDF: {pdf_url}"
+            wa.send_text(phone, msg)
+
+        sessions.clear(phone)
+
+    except Exception as e:
+        logger.exception(f"Error submitting guia: {e}")
+        wa.send_text(phone, f"❌ Error al emitir guía: {e}")
         sessions.clear(phone)
 
 
@@ -615,13 +742,19 @@ def _format_full_preview(extracted: dict) -> str:
 
 def _format_missing(missing: list) -> str:
     labels = {
-        'customer_name': '👤 Nombre del cliente',
-        'customer_ruc': '🔢 RUC del cliente (requerido para factura)',
+        'customer_name':  '👤 Nombre del cliente',
+        'customer_ruc':   '🔢 RUC del cliente (requerido para factura)',
         'customer_email': '📧 Correo del cliente (para envío de PDF)',
-        'items': '📦 Descripción de productos',
-        'quantity': '🔢 Cantidad del producto',
-        'unit_price': '💰 Precio unitario',
-        'doc_type': '📄 Tipo de documento (¿factura o boleta?)',
+        'items':          '📦 Descripción de productos',
+        'quantity':       '🔢 Cantidad del producto',
+        'unit_price':     '💰 Precio unitario',
+        'doc_type':       '📄 Tipo de documento (¿factura o boleta?)',
+        'guia_receiver':  '👤 Nombre/RUC del destinatario',
+        'guia_driver':    '🚗 Datos del conductor (nombre, DNI, licencia)',
+        'guia_vehicle':   '🔑 Placa del vehículo',
+        'guia_addresses': '📍 Dirección de partida y llegada',
+        'guia_weight':    '⚖️ Peso total de los bienes (KG)',
+        'guia_date':      '📅 Fecha de traslado',
     }
     items = [f"  • {labels.get(f, f)}" for f in missing]
     return "⚠️ *Falta información:*\n" + '\n'.join(items) + "\n\nPor favor envíame los datos que faltan."

@@ -11,9 +11,9 @@ from google import genai
 
 logger = logging.getLogger(__name__)
 
-EXTRACTION_PROMPT = """Eres un asistente que extrae datos de facturas y cotizaciones a partir de mensajes informales de WhatsApp en español.
+EXTRACTION_PROMPT = """Eres un asistente que extrae datos de facturas, cotizaciones y guías de remisión a partir de mensajes informales de WhatsApp en español.
 
-El usuario es un vendedor peruano que envía mensajes informales describiendo ventas. Debes extraer los datos estructurados.
+El usuario es un vendedor peruano que envía mensajes informales describiendo ventas o despachos. Debes extraer los datos estructurados.
 
 REGLAS GENERALES:
 - Si el precio tiene "$" es USD. Si tiene "S/." o "Soles" es PEN.
@@ -23,6 +23,7 @@ REGLAS GENERALES:
 - Si menciona "FACTURA" o "FACTURAR" → doc_type = "factura"
 - Si menciona "BOLETA" → doc_type = "boleta"
 - Si menciona "COTIZACION" o "COTIZACIÓN" o "COTIZAR" → doc_type = "cotizacion"
+- Si menciona "GUIA" o "GUÍA" o "GUIA DE REMISION" → doc_type = "guia"
 - Si no especifica → doc_type = "unknown"
 - Cantidades: interpreta unidades como KGS, KG, UNIDADES, CAJAS, TN, LT, etc.
 
@@ -33,12 +34,22 @@ REGLAS PARA COTIZACIONES:
 - Forma de pago con detalle entre paréntesis → payment_detail. Ej: "Contado (Depósito en cuenta)" → payment_detail.
 - Si no se indica validez, usar 15 días por defecto.
 
+REGLAS PARA GUÍAS DE REMISIÓN:
+- El receptor (destinatario) puede identificarse por RUC (11 dígitos) o DNI (8 dígitos).
+- Extraer dirección de partida (departure_address) y dirección de llegada (arrival_address).
+- Ubigeo: código de 6 dígitos del distrito peruano (ej: "150101" para Lima Cercado). Si se menciona el distrito extrae el ubigeo, si no se sabe usar "150101".
+- Datos del transportista: nombre completo (split en firstname/lastname), DNI, licencia de conducir.
+- Placa del vehículo: formato peruano (ej: "ABC-123").
+- Fecha de traslado: formato YYYY-MM-DD. Si dice "hoy" usar fecha actual, si dice mañana calcular.
+- Peso total en KG.
+- Items: descripción, cantidad, unidad (sin precio).
+
 MENSAJES DEL USUARIO:
 {messages}
 
 Responde ÚNICAMENTE con un JSON válido con esta estructura (sin markdown, sin explicaciones):
 {{
-  "doc_type": "factura|boleta|cotizacion|unknown",
+  "doc_type": "factura|boleta|cotizacion|guia|unknown",
   "currency": "USD|PEN",
   "price_includes_igv": false,
   "customer": {{
@@ -66,6 +77,22 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura (sin markdown, sin 
   "delivery": "condición de entrega o null",
   "payment_terms": "CONTADO|CREDITO 30 DIAS|etc o null",
   "notes": "observaciones adicionales o null",
+  "guia": {{
+    "receiver_ruc": "RUC 11 dígitos o null",
+    "receiver_name": "razón social del destinatario o null",
+    "total_weight_kg": número o null,
+    "departure_address": "dirección de partida o null",
+    "departure_ubigeo": "6 dígitos o null",
+    "arrival_address": "dirección de llegada o null",
+    "arrival_ubigeo": "6 dígitos o null",
+    "transport_date": "YYYY-MM-DD o null",
+    "driver_firstname": "primer nombre del conductor o null",
+    "driver_lastname": "apellido del conductor o null",
+    "driver_dni": "DNI 8 dígitos del conductor o null",
+    "driver_license": "número de licencia de conducir o null",
+    "vehicle_plate": "placa del vehículo o null",
+    "transport_mode": "01 o 02 (01=privado, 02=público/tercero)"
+  }},
   "missing_fields": ["lista de campos requeridos que faltan"]
 }}
 
@@ -75,8 +102,14 @@ Para missing_fields incluye:
 - "customer_email" si falta email (para envío de cotización)
 - "items" si no hay productos
 - "quantity" si falta cantidad de algún producto
-- "unit_price" si falta precio de algún producto
-- "doc_type" si no se sabe qué tipo de documento es"""
+- "unit_price" si falta precio de algún producto (no aplica para guía)
+- "doc_type" si no se sabe qué tipo de documento es
+- "guia_receiver" si es guía y falta nombre o RUC del destinatario
+- "guia_driver" si es guía y faltan datos del conductor (nombre, DNI o licencia)
+- "guia_vehicle" si es guía y falta la placa del vehículo
+- "guia_addresses" si es guía y faltan las direcciones de partida/llegada
+- "guia_weight" si es guía y falta el peso total
+- "guia_date" si es guía y falta la fecha de traslado"""
 
 
 class GeminiClient:
