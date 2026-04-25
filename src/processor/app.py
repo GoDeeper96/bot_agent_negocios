@@ -318,9 +318,12 @@ def _handle_submit(phone, session, sessions, wa, config):
         pdf_url      = complete_resp.get('pdfUrl') or ''
         logger.info(f"Parsed: full_number={full_number} sunatStatus={sunat_status} pdfUrl={pdf_url}")
 
-        session.last_sale_id  = sale_id
-        session.last_email    = extracted.get('customer', {}).get('email')
-        session.last_pdf_url  = pdf_url
+        session.last_sale_id    = sale_id
+        session.last_email      = extracted.get('customer', {}).get('email')
+        session.last_pdf_url    = pdf_url
+        session.last_xml_url    = complete_resp.get('xmlUrl') or ''
+        session.last_full_number = full_number
+        session.last_doc_label  = doc_label
 
         sessions.save(session)
 
@@ -360,17 +363,39 @@ def _handle_submit(phone, session, sessions, wa, config):
 # ---------------------------------------------------------------------------
 
 def _handle_send_email(phone, session, sessions, wa, config):
-    pdf_url = session.last_pdf_url
-    email = session.last_email
+    from email_client import send_factura_email
 
-    if not pdf_url or not email:
-        wa.send_text(phone, "No hay PDF o correo disponible para enviar.")
+    pdf_url     = session.last_pdf_url
+    xml_url     = session.last_xml_url
+    email       = session.last_email
+    full_number = session.last_full_number or ''
+    doc_label   = session.last_doc_label or 'Factura'
+
+    if not email:
+        wa.send_text(phone, "No hay correo registrado para el cliente.")
         sessions.clear(phone)
         return
 
-    # TODO: implement SES email sending (Phase 4)
-    # For now, confirm and show the PDF URL
-    wa.send_text(phone, f"📧 PDF enviado a *{email}*.\n\nLink: {pdf_url}")
+    if not pdf_url:
+        wa.send_text(phone, "PDF aún no disponible. Intenta en unos segundos.")
+        return
+
+    wa.send_text(phone, f"📧 Enviando {doc_label} {full_number} a *{email}*...")
+
+    ok = send_factura_email(
+        to_email=email,
+        doc_label=doc_label,
+        full_number=full_number,
+        pdf_url=pdf_url,
+        xml_url=xml_url or None,
+        ssm_prefix=os.environ['SSM_PREFIX'],
+    )
+
+    if ok:
+        wa.send_text(phone, f"✅ {doc_label} enviada a *{email}*.")
+    else:
+        wa.send_text(phone, f"⚠️ No se pudo enviar el correo a {email}. El PDF está en:\n{pdf_url}")
+
     sessions.clear(phone)
 
 
