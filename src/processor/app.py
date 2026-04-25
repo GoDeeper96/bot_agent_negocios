@@ -429,11 +429,20 @@ def _handle_send_email(phone, session, sessions, wa, config):
     # Fetch XML, CDR and updated PDF URL from apisunat
     cdr_url = ''
     if config.get('sunat_persona_id') and config.get('sunat_persona_token'):
-        doc_data = _fetch_sunat_doc(full_number, sunat_doc_id, config['sunat_persona_id'], config['sunat_persona_token'])
+        pid, ptok = config['sunat_persona_id'], config['sunat_persona_token']
+        doc_data = _fetch_sunat_doc(full_number, sunat_doc_id, pid, ptok)
         xml_url  = doc_data.get('xml') or xml_url
         cdr_url  = doc_data.get('cdr') or ''
         pdf_url  = doc_data.get('pdf_url') or pdf_url
-        logger.info(f"apisunat doc fetch: xml={xml_url} cdr={cdr_url} pdf={pdf_url}")
+        # CDR may lag a few seconds behind XML — retry once if missing
+        if not cdr_url:
+            import time as _time
+            _time.sleep(6)
+            doc_data2 = _fetch_sunat_doc(full_number, sunat_doc_id, pid, ptok)
+            cdr_url = doc_data2.get('cdr') or ''
+            if not xml_url:
+                xml_url = doc_data2.get('xml') or xml_url
+        logger.info(f"apisunat doc fetch: xml={bool(xml_url)} cdr={bool(cdr_url)} pdf={bool(pdf_url)}")
 
     wa.send_text(phone, f"📧 Enviando {doc_label} {full_number} a *{email}*...")
 
