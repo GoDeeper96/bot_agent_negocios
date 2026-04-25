@@ -315,10 +315,12 @@ def _handle_submit(phone, session, sessions, wa, config):
         full_number  = complete_resp.get('documentNumber') or complete_resp.get('documentFullNumber', '')
         sunat_status = complete_resp.get('sunatStatus', '')   # 'accepted', 'pending', 'rejected', None
         sunat_msg    = complete_resp.get('sunatMessage', '') or ''
-        logger.info(f"Parsed: full_number={full_number} sunatStatus={sunat_status}")
+        pdf_url      = complete_resp.get('pdfUrl') or ''
+        logger.info(f"Parsed: full_number={full_number} sunatStatus={sunat_status} pdfUrl={pdf_url}")
 
-        session.last_sale_id = sale_id
-        session.last_email   = extracted.get('customer', {}).get('email')
+        session.last_sale_id  = sale_id
+        session.last_email    = extracted.get('customer', {}).get('email')
+        session.last_pdf_url  = pdf_url
 
         sessions.save(session)
 
@@ -328,11 +330,13 @@ def _handle_submit(phone, session, sessions, wa, config):
             session.state = 'email'
             sessions.save(session)
             msg = f"✅ {doc_label} *{full_number}* enviada a SUNAT."
+            if pdf_url:
+                msg += f"\n\n📄 PDF: {pdf_url}"
             if session.last_email:
-                msg += f"\n\n¿Enviar PDF al correo *{session.last_email}*? Responde *sí* o *no*"
+                msg += f"\n\n¿Enviar por correo a *{session.last_email}*? Responde *sí* o *no*"
                 wa.send_text(phone, msg)
             else:
-                wa.send_text(phone, msg + "\n\n(No hay correo registrado para el cliente.)")
+                wa.send_text(phone, msg)
                 sessions.clear(phone)
         else:
             msg = f"✅ {doc_label} *{full_number}* creada."
