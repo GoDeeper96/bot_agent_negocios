@@ -27,6 +27,7 @@ REGLAS GENERALES:
 - Si no especifica → doc_type = "unknown"
 - Cantidades: interpreta unidades como KGS, KG, UNIDADES, CAJAS, TN, LT, etc.
 - Cualquier dirección de email mencionada en el mensaje es SIEMPRE el email del cliente (destinatario de la cotización/factura). El remitente del mensaje es el vendedor de Lichan, no el cliente.
+- Nombres de productos: los números que forman parte del nombre o código del producto (ej: "PLUARAFAC LF 413", "BASF 500", "PRODUCTO XR-200") deben incluirse en "description". NO elimines números del nombre del producto. Solo va en "presentation" la marca o fabricante que aparece como palabra separada al final (ej: "BASF", "DOW", "SIKA"), nunca un número suelto.
 
 REGLAS PARA COTIZACIONES:
 - "Atención:", "Att:", "Attn:", "A/C:" indica contact_persons (puede ser más de uno, separados por "/").

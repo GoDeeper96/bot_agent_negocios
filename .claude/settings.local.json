@@ -28,7 +28,15 @@
       "Bash(aws lambda:*)",
       "Bash(MSYS_NO_PATHCONV=1 \"C:\\\\Program Files\\\\Amazon\\\\AWSSAMCLI\\\\bin\\\\sam.cmd\" deploy --config-env dev --no-confirm-changeset)",
       "Bash(MSYS_NO_PATHCONV=1 \"C:\\\\Program Files\\\\Amazon\\\\AWSSAMCLI\\\\bin\\\\sam.cmd\" deploy --config-env dev --no-confirm-changeset --profile eyatech)",
-      "Bash(MSYS_NO_PATHCONV=1 aws lambda list-functions --profile eyatech --region us-west-2)"
+      "Bash(MSYS_NO_PATHCONV=1 aws lambda list-functions --profile eyatech --region us-west-2)",
+      "PowerShell(aws ssm put-parameter *)",
+      "PowerShell(aws sso login *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "WebFetch(domain:docs.apisunat.com)",
+      "Bash(python3 -m json.tool)",
+      "Bash(git commit *)"
     ]
   }
 }
