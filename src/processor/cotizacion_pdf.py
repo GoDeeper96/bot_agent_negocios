@@ -7,6 +7,15 @@ from datetime import datetime
 
 from fpdf import FPDF
 
+
+def _fmt_price(price: float) -> str:
+    """Format unit price with min 2 decimal places, up to 4, stripping trailing zeros."""
+    s = f"{price:.4f}".rstrip('0')
+    decimals = len(s) - s.index('.') - 1
+    if decimals < 2:
+        decimals = 2
+    return f"{price:,.{decimals}f}"
+
 COMPANY_NAME  = "NEGOCIOS MULTIPLES LICHAN S.A.C."
 COMPANY_RUC   = "20607960225"
 COMPANY_ADDR  = "CAL.LOS EUCALIPTOS MZA. A LOTE. 5 VILLA EL SALVADOR LIMA LIMA"
@@ -148,7 +157,7 @@ def generate_cotizacion_pdf(extracted: dict, cot_number: str) -> bytes:
         pdf.set_font("Helvetica", "", 8)
 
         row_h = 7
-        vals  = [desc[:40], pres[:22], f"{qty:g} {unit}", f"{price:,.2f}", f"{line:,.2f}"]
+        vals  = [desc[:40], pres[:22], f"{qty:g} {unit}", _fmt_price(price), f"{line:,.2f}"]
         for w, v, a in zip(col, vals, aligns):
             pdf.cell(w, row_h, v, border=1, fill=shade, align=a)
         pdf.ln()

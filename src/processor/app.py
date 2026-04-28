@@ -27,6 +27,15 @@ from whatsapp import WhatsAppClient
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+def _fmt_price(price: float) -> str:
+    """Format unit price with min 2 decimal places, up to 4, stripping trailing zeros."""
+    s = f"{price:.4f}".rstrip('0')
+    decimals = len(s) - s.index('.') - 1
+    if decimals < 2:
+        decimals = 2
+    return f"{price:,.{decimals}f}"
+
+
 # ---------------------------------------------------------------------------
 # Config loaded from SSM once per container
 # ---------------------------------------------------------------------------
@@ -830,7 +839,7 @@ def _format_full_preview(extracted: dict) -> str:
             lines.append(f"   Proc: {item['origin']}")
         if item.get('presentation'):
             lines.append(f"   Pres: {item['presentation']}")
-        lines.append(f"   {qty:g} {unit} × {symbol}{price:.2f} = {symbol}{line_total:.2f}")
+        lines.append(f"   {qty:g} {unit} × {symbol}{_fmt_price(price)} = {symbol}{line_total:,.2f}")
 
     lines.append(sep)
 
@@ -1031,7 +1040,7 @@ def _format_cotizacion_preview(extracted: dict) -> str:
             lines.append(f"   Proc: {item['origin']}")
         if item.get('presentation'):
             lines.append(f"   Pres: {item['presentation']}")
-        lines.append(f"   {qty:g} {item.get('unit','')} × {symbol}{price:,.2f} = {symbol}{line:,.2f}")
+        lines.append(f"   {qty:g} {item.get('unit','')} × {symbol}{_fmt_price(price)} = {symbol}{line:,.2f}")
 
     lines.append(sep)
 
@@ -1113,7 +1122,7 @@ def _format_email_preview(extracted: dict, cot_number: str) -> str:
         line  = qty * price
         lines.append(
             f"  • {item.get('description','?')} — "
-            f"{qty:g} {item.get('unit','')} × {symbol}{price:,.2f} = {symbol}{line:,.2f}"
+            f"{qty:g} {item.get('unit','')} × {symbol}{_fmt_price(price)} = {symbol}{line:,.2f}"
         )
 
     lines += [
@@ -1190,7 +1199,7 @@ def _build_email_body(extracted: dict, cot_number: str) -> str:
             desc += f" ({item['presentation']})"
         lines += [
             f"  {desc}",
-            f"  {qty:g} {item.get('unit','')} x {symbol}{price:,.2f} = {symbol}{qty*price:,.2f}",
+            f"  {qty:g} {item.get('unit','')} x {symbol}{_fmt_price(price)} = {symbol}{qty*price:,.2f}",
         ]
         if item.get('origin'):
             lines.append(f"  Procedencia: {item['origin']}")
