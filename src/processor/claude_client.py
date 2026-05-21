@@ -24,6 +24,7 @@ REGLAS GENERALES:
 - Si menciona "BOLETA" → doc_type = "boleta"
 - Si menciona "COTIZACION" o "COTIZACIÓN" o "COTIZAR" → doc_type = "cotizacion"
 - Si menciona "GUIA" o "GUÍA" o "GUIA DE REMISION" → doc_type = "guia"
+- Si menciona "ORDEN DE COMPRA" o "OC" o "PURCHASE ORDER" → doc_type = "orden_compra"
 - Si no especifica → doc_type = "unknown"
 - Cantidades: interpreta unidades como KGS, KG, UNIDADES, CAJAS, TN, LT, etc.
 - Cualquier dirección de email mencionada en el mensaje es SIEMPRE el email del cliente (destinatario de la cotización/factura). El remitente del mensaje es el vendedor de Lichan, no el cliente.
@@ -35,6 +36,17 @@ REGLAS PARA COTIZACIONES:
 - "Válido por X días", "validez X días", "vigencia X días" → validity_days (número entero). Si no se menciona explícitamente → null.
 - Forma de pago con detalle entre paréntesis → payment_detail. Ej: "Contado (Depósito en cuenta)" → payment_detail.
 - Si no se indica validez, dejar null (no usar valor por defecto).
+- Si el usuario dice "poner en obs", "poner en observaciones", "obs:", "en observacion", o cualquier indicación de notas/aclaraciones, el texto indicado va en el campo "notes". Ej: "poner en obs que se dan 1000kg ahora y el resto en 15 días" → notes = "1000kg (50%) entrega inmediata; 50% restante en 15 dias habiles".
+- El campo "delivery" es para la condición de entrega general (ej: "Entrega inmediata", "Contra entrega"). Cronogramas de entrega escalonada o aclaraciones especiales van en "notes", no en "delivery".
+
+REGLAS PARA ÓRDENES DE COMPRA:
+- En una orden de compra, Lichan es el COMPRADOR y el campo "customer" representa al PROVEEDOR/VENDEDOR.
+- Extrae los datos del proveedor en "customer": name, ruc, address, phone, email, contact_person.
+- "Lugar de entrega" o "Entregar en" → delivery.
+- "Tiempo de entrega", "Fecha de entrega", "Fecha de despacho" → delivery_date.
+- Forma de pago → payment_terms o payment_detail.
+- Los items incluyen: código de producto (sku), cantidad, unidad, descripción y precio unitario.
+- "Código:", "Cód.", "Código de producto" → sku del item.
 
 REGLAS PARA GUÍAS DE REMISIÓN:
 - El receptor (destinatario) puede identificarse por RUC (11 dígitos) o DNI (8 dígitos).
@@ -51,7 +63,7 @@ MENSAJES DEL USUARIO:
 
 Responde ÚNICAMENTE con un JSON válido con esta estructura (sin markdown, sin explicaciones):
 {{
-  "doc_type": "factura|boleta|cotizacion|guia|unknown",
+  "doc_type": "factura|boleta|cotizacion|guia|orden_compra|unknown",
   "currency": "USD|PEN",
   "price_includes_igv": false,
   "customer": {{
@@ -59,6 +71,8 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura (sin markdown, sin 
     "ruc": "11 dígitos o null",
     "dni": "8 dígitos o null",
     "email": "email o null",
+    "address": "dirección o null (especialmente para orden_compra: dirección del proveedor)",
+    "phone": "teléfono o null (para orden_compra: teléfono del proveedor)",
     "contact_person": "nombre contacto principal o null"
   }},
   "contact_persons": "Ing. Roberto Roeder / Srta. Rojana Hurtado o null",
@@ -76,7 +90,8 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura (sin markdown, sin 
       "sku": "código o null"
     }}
   ],
-  "delivery": "condición de entrega o null",
+  "delivery": "condición de entrega o lugar de entrega o null",
+  "delivery_date": "fecha de entrega en formato DD/MM/YYYY o null (para orden_compra: tiempo de entrega)",
   "payment_terms": "CONTADO|CREDITO 30 DIAS|etc o null",
   "notes": "observaciones adicionales o null",
   "guia": {{
@@ -99,7 +114,7 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura (sin markdown, sin 
 }}
 
 Para missing_fields incluye:
-- "customer_name" si falta nombre del cliente
+- "customer_name" si falta nombre del cliente (o proveedor en orden_compra)
 - "customer_ruc" si es factura y falta RUC
 - "customer_doc" si es cotizacion o boleta y falta tanto RUC como DNI (se requiere uno de los dos)
 - "customer_email" si falta email (para envío de cotización)
@@ -107,12 +122,13 @@ Para missing_fields incluye:
 - "quantity" si falta cantidad de algún producto
 - "unit_price" si falta precio de algún producto (no aplica para guía)
 - "doc_type" si no se sabe qué tipo de documento es
-- "guia_receiver" si es guía y falta nombre o RUC del destinatario
-- "guia_driver" si es guía y faltan datos del conductor (nombre, DNI o licencia)
-- "guia_vehicle" si es guía y falta la placa del vehículo
-- "guia_addresses" si es guía y faltan las direcciones de partida/llegada
-- "guia_weight" si es guía y falta el peso total
-- "guia_date" si es guía y falta la fecha de traslado"""
+- SOLO si doc_type = "guia": "guia_receiver" si falta nombre o RUC del destinatario
+- SOLO si doc_type = "guia": "guia_driver" si faltan datos del conductor (nombre, DNI o licencia)
+- SOLO si doc_type = "guia": "guia_vehicle" si falta la placa del vehículo
+- SOLO si doc_type = "guia": "guia_addresses" si faltan las direcciones de partida/llegada
+- SOLO si doc_type = "guia": "guia_weight" si falta el peso total
+- SOLO si doc_type = "guia": "guia_date" si falta la fecha de traslado
+- NUNCA incluyas campos "guia_*" en missing_fields si doc_type es factura, boleta, cotizacion u orden_compra"""
 
 
 class GeminiClient:

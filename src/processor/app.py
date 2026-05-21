@@ -123,15 +123,16 @@ def handler(event, context):
 
 _CONFIRM_WORDS = {'si', 'sí', 'yes', 'confirmar', 'ok', 'dale', 'enviar'}
 _CANCEL_WORDS  = {'no', 'cancelar', 'cancel', 'nope', '0'}
-_MENU_OPTIONS  = {'1': 'factura', '2': 'cotizacion', '3': 'guia'}
-_EXAMPLES_MENU = {'4.1', '4.2', '4.3'}
+_MENU_OPTIONS  = {'1': 'factura', '2': 'cotizacion', '3': 'guia', '5': 'orden_compra'}
+_EXAMPLES_MENU = {'4.1', '4.2', '4.3', '4.4'}
 
 MENU_TEXT = (
     "Hola 👋 ¿Qué deseas crear?\n\n"
     "1️⃣  Factura\n"
     "2️⃣  Cotización\n"
     "3️⃣  Guía de Remisión\n"
-    "4️⃣  Ver ejemplos\n\n"
+    "4️⃣  Ver ejemplos\n"
+    "5️⃣  Orden de Compra\n\n"
     "Responde con el número o envía directamente los datos.\n"
     "Escribe *0* en cualquier momento para cancelar."
 )
@@ -140,8 +141,9 @@ _EXAMPLES_SUBMENU = (
     "*4️⃣ Ejemplos de uso*\n\n"
     "4️⃣.1️⃣  Ejemplo Factura\n"
     "4️⃣.2️⃣  Ejemplo Cotización\n"
-    "4️⃣.3️⃣  Ejemplo Guía de Remisión\n\n"
-    "Responde con *4.1*, *4.2* o *4.3*"
+    "4️⃣.3️⃣  Ejemplo Guía de Remisión\n"
+    "4️⃣.4️⃣  Ejemplo Orden de Compra\n\n"
+    "Responde con *4.1*, *4.2*, *4.3* o *4.4*"
 )
 
 _EXAMPLE_FACTURA = (
@@ -196,9 +198,28 @@ _EXAMPLE_GUIA = (
     "Escribe *3* para crear una guía de remisión."
 )
 
+_EXAMPLE_ORDEN_COMPRA = (
+    "*📋 Ejemplo de Orden de Compra:*\n\n"
+    "```\n"
+    "Orden de compra para CORPORACION INDUSTRIAL LOSARO S.A.C.\n"
+    "RUC 20215195539\n"
+    "Email: ventas@losaro.pe\n\n"
+    "- Código A10000095 - Potasa Caustica (KG)\n"
+    "  5,000 KG a $1.12 c/u\n\n"
+    "Forma de pago: Contado contra entrega\n"
+    "Lugar de entrega: Cal. Los Eucaliptos Mza A Lote 5, Villa El Salvador\n"
+    "Tiempo de entrega: 25/02/2026\n"
+    "Moneda: USD\n"
+    "```\n\n"
+    "_Puedes enviarlo así o con tus propios datos._\n"
+    "Escribe *5* para crear una orden de compra."
+)
+
 
 def _detect_doc_intent(text_lower: str) -> str | None:
     """Return doc_type if the message clearly signals an intent, else None."""
+    if any(k in text_lower for k in ('orden de compra', 'purchase order')):
+        return 'orden_compra'
     if any(k in text_lower for k in ('cotizacion', 'cotización', 'cotizar')):
         return 'cotizacion'
     if any(k in text_lower for k in ('guia de remision', 'guía de remisión', 'guia remision')):
@@ -211,7 +232,12 @@ def _detect_doc_intent(text_lower: str) -> str | None:
 
 
 def _handle_example(phone, option: str, wa):
-    examples = {'4.1': _EXAMPLE_FACTURA, '4.2': _EXAMPLE_COTIZACION, '4.3': _EXAMPLE_GUIA}
+    examples = {
+        '4.1': _EXAMPLE_FACTURA,
+        '4.2': _EXAMPLE_COTIZACION,
+        '4.3': _EXAMPLE_GUIA,
+        '4.4': _EXAMPLE_ORDEN_COMPRA,
+    }
     wa.send_text(phone, examples[option])
 
 
@@ -279,6 +305,13 @@ def _dispatch(phone, text, session, sessions, wa, config):
             sessions.clear(phone)
             wa.send_text(phone, "Entendido, no se enviará el email. ✅\n\n" + MENU_TEXT)
 
+    elif session.state == 'oc_email_preview':
+        if text_lower in _CONFIRM_WORDS:
+            _handle_send_orden_compra_email(phone, session, sessions, wa, config)
+        else:
+            sessions.clear(phone)
+            wa.send_text(phone, "Entendido, no se enviará el email. ✅\n\n" + MENU_TEXT)
+
     elif session.state == 'email':
         if text_lower in _CONFIRM_WORDS:
             _handle_send_email(phone, session, sessions, wa, config)
@@ -319,7 +352,7 @@ def _handle_collecting(phone, text, session, sessions, wa, config):
 
     # RUC only required for factura — cotizacion/boleta accept RUC or DNI
     doc_now = extracted.get('doc_type')
-    if doc_now in ('cotizacion', 'boleta', 'guia'):
+    if doc_now in ('cotizacion', 'boleta', 'guia', 'orden_compra'):
         missing = [f for f in missing if f != 'customer_ruc']
     # For cotizacion/boleta: require at least one of RUC or DNI
     if doc_now in ('cotizacion', 'boleta'):
@@ -328,9 +361,16 @@ def _handle_collecting(phone, text, session, sessions, wa, config):
             missing = [f for f in missing if f != 'customer_ruc']
             if 'customer_doc' not in missing:
                 missing.append('customer_doc')
+    # For orden_compra: RUC/DNI and email are all optional
+    if doc_now == 'orden_compra':
+        missing = [f for f in missing if f not in ('customer_ruc', 'customer_doc', 'customer_email')]
 
     # Email is optional — never block the flow on it
     missing = [f for f in missing if f != 'customer_email']
+
+    # Guia fields are only required when the document is actually a guia
+    if doc_now != 'guia':
+        missing = [f for f in missing if not f.startswith('guia_')]
 
     if missing:
         preview = _format_partial_preview(extracted)
@@ -346,6 +386,9 @@ def _handle_collecting(phone, text, session, sessions, wa, config):
         elif doc_type_now == 'guia':
             preview      = _format_guia_preview(extracted)
             confirm_text = "¿Confirmar y emitir guía? Responde *sí* o *no*\n_Escribe *0* para cancelar._"
+        elif doc_type_now == 'orden_compra':
+            preview      = _format_orden_compra_preview(extracted)
+            confirm_text = "¿Confirmar datos? Responde *sí* o *no*\n_Escribe *0* para cancelar._"
         else:
             preview      = _format_full_preview(extracted)
             confirm_text = "¿Confirmar y enviar? Responde *sí* o *no*\n_Escribe *0* para cancelar._"
@@ -364,6 +407,9 @@ def _handle_submit(phone, session, sessions, wa, config):
         return
     if doc_type_now == 'guia':
         _handle_guia_submit(phone, session, sessions, wa, config)
+        return
+    if doc_type_now == 'orden_compra':
+        _handle_orden_compra_confirmed(phone, session, sessions, wa, config)
         return
 
     wa.send_text(phone, "⏳ Procesando...")
@@ -497,7 +543,7 @@ def _handle_submit(phone, session, sessions, wa, config):
 # ---------------------------------------------------------------------------
 
 _GUIA_SERIE   = "T001"
-_COMPANY_ADDR = "CAL.LOS EUCALIPTOS MZA. A LOTE. 5 VILLA EL SALVADOR LIMA LIMA"
+_COMPANY_ADDR = "AV. GUILLERMO BILLINGHURST NRO. 1089 URB. SAN JUAN ZN. D- SAN JUAN DE MIRAFLORES - LIMA - LIMA"
 
 
 def _next_guia_number(ssm_prefix: str) -> str:
@@ -790,6 +836,9 @@ def _format_partial_preview(extracted: dict) -> str:
         type_label = {'factura': 'Factura', 'boleta': 'Boleta', 'cotizacion': 'Cotización'}
         lines.append(f"\n📄 Documento: {type_label.get(doc_type, doc_type)}")
 
+    if extracted.get('notes'):
+        lines.append(f"📝 Obs: {extracted['notes']}")
+
     return '\n'.join(lines)
 
 
@@ -861,6 +910,8 @@ def _format_full_preview(extracted: dict) -> str:
         lines.append(f"🚚 {extracted['delivery']}")
     if extracted.get('payment_terms'):
         lines.append(f"💳 {extracted['payment_terms']}")
+    if extracted.get('notes'):
+        lines.append(f"📝 Obs: {extracted['notes']}")
 
     return '\n'.join(lines)
 
@@ -1160,6 +1211,170 @@ def _format_email_preview(extracted: dict, cot_number: str) -> str:
     ]
 
     return '\n'.join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Orden de Compra flow
+# ---------------------------------------------------------------------------
+
+def _next_oc_number() -> str:
+    """Atomically increment SSM counter and return OC-YYYY-NNNN."""
+    ssm        = boto3.client('ssm', region_name='us-west-2')
+    param_name = f"{os.environ['SSM_PREFIX']}/oc_counter"
+    try:
+        resp = ssm.get_parameter(Name=param_name)
+        n = int(resp['Parameter']['Value']) + 1
+    except ssm.exceptions.ParameterNotFound:
+        n = 1
+    ssm.put_parameter(Name=param_name, Value=str(n), Type='String', Overwrite=True)
+    return f"OC-{datetime.now().year}-{n:04d}"
+
+
+def _format_orden_compra_preview(extracted: dict) -> str:
+    """WhatsApp preview before dad confirms the OC."""
+    supplier  = extracted.get('customer', {})
+    items     = extracted.get('items', [])
+    currency  = extracted.get('currency', 'USD')
+    inc_igv   = extracted.get('price_includes_igv', False)
+    symbol    = '$' if currency == 'USD' else 'S/.'
+
+    sep = "─────────────────────"
+    lines = [
+        "*🛒 ORDEN DE COMPRA*",
+        f"*{_COMPANY_NAME}*",
+        sep,
+        f"*Proveedor:* {(supplier.get('name') or '-').upper()}",
+    ]
+    if supplier.get('ruc'):
+        lines.append(f"*RUC:* {supplier['ruc']}")
+    if supplier.get('email'):
+        lines.append(f"*Email:* {supplier['email']}")
+
+    payment = extracted.get('payment_detail') or extracted.get('payment_terms')
+    if payment:
+        lines.append(f"*Pago:* {payment}")
+    delivery = extracted.get('delivery')
+    if delivery:
+        lines.append(f"*Entrega:* {delivery}")
+    delivery_date = extracted.get('delivery_date')
+    if delivery_date:
+        lines.append(f"*Fecha entrega:* {delivery_date}")
+
+    lines += [sep, "*PRODUCTOS*"]
+
+    total_base = 0.0
+    for i, item in enumerate(items, 1):
+        qty   = float(item.get('quantity', 0))
+        price = float(item.get('unit_price', 0))
+        line  = qty * price
+        total_base += line
+        desc = item.get('description', '?')
+        sku  = item.get('sku') or ''
+        lines.append(f"\n*{i}. {desc}*" + (f" [{sku}]" if sku else ""))
+        lines.append(f"   {qty:g} {item.get('unit','')} × {symbol}{_fmt_price(price)} = {symbol}{line:,.2f}")
+
+    lines.append(sep)
+
+    if inc_igv:
+        base_display = round(total_base / 1.18, 2)
+        igv   = round(total_base - base_display, 2)
+        total = total_base
+    else:
+        base_display = total_base
+        igv   = round(total_base * 0.18, 2)
+        total = round(total_base + igv, 2)
+
+    lines += [
+        f"   Subtotal:     {symbol}{base_display:,.2f}",
+        f"   I.G.V. (18%): {symbol}{igv:,.2f}",
+        f"   *TOTAL:       {symbol}{total:,.2f} {currency}*",
+    ]
+    return '\n'.join(lines)
+
+
+def _handle_orden_compra_confirmed(phone, session, sessions, wa, config):
+    """Dad confirmed OC data → assign number, show email preview or finish."""
+    oc_number = _next_oc_number()
+    session.last_cot_number = oc_number   # reuse field
+    session.last_email      = session.extracted.get('customer', {}).get('email')
+
+    supplier_email = session.last_email
+    if not supplier_email:
+        sessions.clear(phone)
+        wa.send_text(phone,
+            f"✅ Orden de Compra *{oc_number}* confirmada.\n\n"
+            "No hay email del proveedor registrado. Puedes reenviar el PDF manualmente.")
+        return
+
+    session.state = 'oc_email_preview'
+    sessions.save(session)
+
+    supplier  = session.extracted.get('customer', {})
+    cust_name = (supplier.get('name') or 'Proveedor').upper()
+    sep = "─────────────────────"
+    lines = [
+        "📧 *Vista previa del email:*",
+        sep,
+        f"*Para:* {supplier_email}",
+        f"*Asunto:* Orden de Compra {oc_number} | {_COMPANY_NAME}",
+        sep,
+        f"Estimados {cust_name},",
+        "",
+        f"Adjunto encontrará nuestra Orden de Compra *{oc_number}*.",
+        "Por favor confirmar recepción y fecha de despacho.",
+        "",
+        "Saludos cordiales,",
+        f"*{_COMPANY_NAME}*",
+        f"RUC: {_COMPANY_RUC}  |  Tel: {_COMPANY_TEL}",
+        _COMPANY_EMAIL,
+        sep,
+        f"¿Enviar este email a *{supplier_email}*?",
+        "Responde *sí* o *no*  |  _Escribe *0* para cancelar._",
+    ]
+    wa.send_text(phone, '\n'.join(lines))
+
+
+def _handle_send_orden_compra_email(phone, session, sessions, wa, config):
+    """Dad confirmed email → generate PDF and send to supplier via Graph API."""
+    from orden_compra_pdf import generate_orden_compra_pdf
+    from email_client import send_orden_compra_email
+
+    extracted  = session.extracted
+    oc_number  = session.last_cot_number
+    to_email   = session.last_email
+
+    if not to_email or not oc_number:
+        wa.send_text(phone, "❌ No hay email o número de OC disponible.")
+        sessions.clear(phone)
+        return
+
+    wa.send_text(phone, "⏳ Generando PDF y enviando...")
+
+    try:
+        pdf_bytes    = generate_orden_compra_pdf(extracted, oc_number)
+        pdf_filename = f"{oc_number}.pdf"
+        supplier     = extracted.get('customer', {})
+        cust_name    = (supplier.get('name') or 'Proveedor').upper()
+        subject      = f"Orden de Compra {oc_number} | {_COMPANY_NAME}"
+
+        ok = send_orden_compra_email(
+            to_email=to_email,
+            subject=subject,
+            pdf_bytes=pdf_bytes,
+            pdf_filename=pdf_filename,
+            ssm_prefix=os.environ['SSM_PREFIX'],
+            extracted=extracted,
+            oc_number=oc_number,
+        )
+        if ok:
+            wa.send_text(phone, f"✅ Orden de Compra *{oc_number}* enviada a *{to_email}*")
+        else:
+            wa.send_text(phone, "❌ No se pudo enviar el email. Intenta de nuevo.")
+    except Exception as e:
+        logger.exception(f"Error sending OC email: {e}")
+        wa.send_text(phone, "❌ Error al generar o enviar la orden de compra.")
+    finally:
+        sessions.clear(phone)
 
 
 def _build_email_body(extracted: dict, cot_number: str) -> str:

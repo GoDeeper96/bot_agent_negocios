@@ -79,7 +79,7 @@ def _get_access_token(ssm_prefix: str) -> str:
 
 _COMPANY_NAME = "NEGOCIOS MULTIPLES LICHAN S.A.C."
 _COMPANY_RUC  = "20607960225"
-_COMPANY_ADDR = "CAL.LOS EUCALIPTOS MZA. A LOTE. 5 VILLA EL SALVADOR LIMA LIMA"
+_COMPANY_ADDR = "AV. GUILLERMO BILLINGHURST NRO. 1089 URB. SAN JUAN ZN. D- SAN JUAN DE MIRAFLORES - LIMA - LIMA"
 _COMPANY_PHONE = "960113935"
 _COMPANY_EMAIL = "negocios.lichan@outlook.com"
 
@@ -304,6 +304,8 @@ def _build_cotizacion_html(extracted: dict, cot_number: str) -> str:
         conditions.append(f"<tr><td style='padding:4px 12px;color:#555;'>Forma de pago:</td><td style='padding:4px 12px;font-weight:bold;'>{payment}</td></tr>")
     if validity:
         conditions.append(f"<tr><td style='padding:4px 12px;color:#555;'>Validez:</td><td style='padding:4px 12px;font-weight:bold;'>{validity} días calendario</td></tr>")
+    if extracted.get('notes'):
+        conditions.append(f"<tr><td style='padding:4px 12px;color:#555;vertical-align:top;'>Observaciones:</td><td style='padding:4px 12px;'>{extracted['notes']}</td></tr>")
 
     conditions_html = ""
     if conditions:
@@ -347,6 +349,175 @@ Email: <a href="mailto:{_COMPANY_EMAIL}">{_COMPANY_EMAIL}</a>
 
 </body>
 </html>"""
+
+
+def _build_orden_compra_html(extracted: dict, oc_number: str) -> str:
+    """Build HTML body for Orden de Compra email."""
+    supplier  = extracted.get('customer', {})
+    items     = extracted.get('items', [])
+    currency  = extracted.get('currency', 'USD')
+    inc_igv   = extracted.get('price_includes_igv', False)
+    symbol    = '$' if currency == 'USD' else 'S/.'
+    cust_name = (supplier.get('name') or '').upper()
+
+    total_base = sum(float(i.get('quantity', 0)) * float(i.get('unit_price', 0)) for i in items)
+    if inc_igv:
+        base_display = round(total_base / 1.18, 2)
+        igv   = round(total_base - base_display, 2)
+        total = total_base
+    else:
+        base_display = total_base
+        igv   = round(total_base * 0.18, 2)
+        total = round(total_base + igv, 2)
+
+    rows_html = ""
+    for idx, item in enumerate(items, 1):
+        qty   = float(item.get('quantity', 0))
+        price = float(item.get('unit_price', 0))
+        sku   = item.get('sku') or ''
+        desc  = item.get('description', '')
+        if sku:
+            desc = f"[{sku}] {desc}"
+        line_total = qty * price
+        rows_html += f"""
+        <tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;">{str(idx).zfill(3)}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;">{desc}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;">{qty:g} {item.get('unit','')}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">{symbol}{price:,.4f}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:bold;">{symbol}{line_total:,.2f}</td>
+        </tr>"""
+
+    totals_html = f"""
+        <tr style="background:#f9f9f9;">
+          <td colspan="4" style="padding:6px 12px;text-align:right;color:#555;">IGV (18%):</td>
+          <td style="padding:6px 12px;text-align:right;">{symbol}{igv:,.2f}</td>
+        </tr>
+        <tr style="background:#8b1a1a;color:#fff;">
+          <td colspan="4" style="padding:8px 12px;text-align:right;font-weight:bold;">TOTAL:</td>
+          <td style="padding:8px 12px;text-align:right;font-weight:bold;">{symbol}{total:,.2f} {currency}</td>
+        </tr>"""
+
+    conditions = []
+    payment = extracted.get('payment_detail') or extracted.get('payment_terms')
+    if payment:
+        conditions.append(f"<tr><td style='padding:4px 12px;color:#555;width:160px;'>Forma de pago:</td><td style='padding:4px 12px;font-weight:bold;'>{payment}</td></tr>")
+    if extracted.get('delivery'):
+        conditions.append(f"<tr><td style='padding:4px 12px;color:#555;'>Lugar de entrega:</td><td style='padding:4px 12px;font-weight:bold;'>{extracted['delivery']}</td></tr>")
+    if extracted.get('delivery_date'):
+        conditions.append(f"<tr><td style='padding:4px 12px;color:#555;'>Tiempo de entrega:</td><td style='padding:4px 12px;font-weight:bold;'>{extracted['delivery_date']}</td></tr>")
+    if extracted.get('notes'):
+        conditions.append(f"<tr><td style='padding:4px 12px;color:#555;'>Observaciones:</td><td style='padding:4px 12px;'>{extracted['notes']}</td></tr>")
+
+    conditions_html = ""
+    if conditions:
+        conditions_html = f"""
+        <h3 style="color:#8b1a1a;margin-top:24px;">Condiciones</h3>
+        <table style="border-collapse:collapse;font-size:14px;">{''.join(conditions)}</table>"""
+
+    return f"""\
+<html>
+<body style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:700px;margin:0 auto;">
+
+<p>Estimados {cust_name},</p>
+<p>Adjunto encontrará nuestra <strong>Orden de Compra {oc_number}</strong>.<br>
+Por favor confirmar recepción y fecha de despacho.</p>
+
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:16px;">
+  <thead>
+    <tr style="background:#8b1a1a;color:#fff;">
+      <th style="padding:10px 12px;text-align:center;">#</th>
+      <th style="padding:10px 12px;text-align:left;">Descripción</th>
+      <th style="padding:10px 12px;text-align:center;">Cantidad</th>
+      <th style="padding:10px 12px;text-align:right;">Precio Unit.</th>
+      <th style="padding:10px 12px;text-align:right;">Total</th>
+    </tr>
+  </thead>
+  <tbody>{rows_html}</tbody>
+  <tfoot>{totals_html}</tfoot>
+</table>
+
+{conditions_html}
+
+<p style="margin-top:24px;">Quedo atento a su confirmación.</p>
+<p>Saludos cordiales / Best regards</p>
+<br>
+<img src="cid:logo_lichan" alt="{_COMPANY_NAME}" style="max-width:220px;"><br><br>
+<strong>{_COMPANY_NAME}</strong><br>
+RUC: {_COMPANY_RUC}<br>
+{_COMPANY_ADDR}<br>
+Telf.: {_COMPANY_PHONE}<br>
+Email: <a href="mailto:{_COMPANY_EMAIL}">{_COMPANY_EMAIL}</a>
+
+</body>
+</html>"""
+
+
+def send_orden_compra_email(
+    to_email: str,
+    subject: str,
+    pdf_bytes: bytes,
+    pdf_filename: str,
+    ssm_prefix: str,
+    extracted: dict = None,
+    oc_number: str = "",
+) -> bool:
+    """Send Orden de Compra email with PDF attachment via Microsoft Graph API."""
+    try:
+        access_token = _get_access_token(ssm_prefix)
+
+        html_body  = _build_orden_compra_html(extracted, oc_number)
+        body_block = {"contentType": "HTML", "content": html_body}
+
+        attachments = []
+
+        _logo_path = os.path.join(os.path.dirname(__file__), "logo_negocios_multiples_lichan.png")
+        try:
+            with open(_logo_path, "rb") as _f:
+                _logo_bytes = _f.read()
+            attachments.append({
+                "@odata.type":  "#microsoft.graph.fileAttachment",
+                "name":         "logo_lichan.png",
+                "contentType":  "image/png",
+                "contentId":    "logo_lichan",
+                "isInline":     True,
+                "contentBytes": base64.b64encode(_logo_bytes).decode(),
+            })
+        except Exception as _e:
+            logger.warning(f"Could not load logo: {_e}")
+
+        attachments.append({
+            "@odata.type":  "#microsoft.graph.fileAttachment",
+            "name":         pdf_filename,
+            "contentType":  "application/pdf",
+            "contentBytes": base64.b64encode(pdf_bytes).decode(),
+        })
+
+        payload = {
+            "message": {
+                "subject": subject,
+                "body": body_block,
+                "toRecipients": [{"emailAddress": {"address": to_email}}],
+                "attachments": attachments,
+            }
+        }
+
+        resp = requests.post(
+            _SEND_MAIL_URL,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type":  "application/json",
+            },
+            json=payload,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        logger.info(f"Graph API OC email sent to {to_email} | {subject}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Graph API send_orden_compra_email failed → {to_email}: {e}")
+        return False
 
 
 def send_cotizacion_email(
