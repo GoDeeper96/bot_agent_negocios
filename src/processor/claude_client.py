@@ -131,6 +131,38 @@ Para missing_fields incluye:
 - NUNCA incluyas campos "guia_*" en missing_fields si doc_type es factura, boleta, cotizacion u orden_compra"""
 
 
+STOCK_MOVEMENT_PROMPT = """Eres un asistente que extrae datos de movimientos de stock a partir de mensajes informales en español.
+
+El usuario es un vendedor peruano que registra ingresos o salidas de productos.
+
+REGLAS:
+- "ingresé", "recibí", "llegó", "compré", "entrada de" → movement_type = "entry"
+- "salida de", "despachamos", "vendimos", "consumimos" → movement_type = "exit"
+- "ajuste", "corrección de stock" → movement_type = "adjustment"
+- Si no se especifica → movement_type = "entry" (lo más común)
+- Razones de entrada: "purchase" (compra), "return" (devolución), "initial" (stock inicial), "adjustment"
+- Razones de salida: "sale" (venta), "damage" (daño), "expired" (vencido), "correction"
+- Referencia: número de OC, factura, guía u otro documento mencionado
+- Cantidad: extraer número y unidad (KG, UNIDADES, CAJAS, etc.)
+- Producto: nombre o SKU mencionado. Si menciona código (ej: NL-POT-001) usar como sku.
+
+MENSAJES:
+{messages}
+
+Responde ÚNICAMENTE con JSON válido (sin markdown):
+{{
+  "movement_type": "entry|exit|adjustment",
+  "reason": "purchase|return|initial|adjustment|sale|damage|expired|correction",
+  "product_name": "nombre del producto o null",
+  "sku": "código SKU o null",
+  "quantity": número,
+  "unit": "KG|UNIDADES|CAJAS|etc",
+  "reference": "número de OC/factura/guía o null",
+  "notes": "observaciones adicionales o null",
+  "missing_fields": ["product_name si falta", "quantity si falta"]
+}}"""
+
+
 class GeminiClient:
     def __init__(self, api_key: str):
         self._client = genai.Client(api_key=api_key)
@@ -164,3 +196,26 @@ class GeminiClient:
         except json.JSONDecodeError as e:
             logger.error(f"Gemini returned invalid JSON: {raw}")
             raise ValueError(f"No se pudo procesar la extracción: {e}")
+
+    def extract_stock_movement(self, messages: list) -> dict:
+        """Extract stock movement data from accumulated WhatsApp messages."""
+        messages_text = "\n".join(f"- {m}" for m in messages)
+        prompt = STOCK_MOVEMENT_PROMPT.format(messages=messages_text)
+
+        response = self._client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=prompt,
+        )
+        raw = response.text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+
+        logger.info(f"Gemini stock extraction: {raw[:200]}")
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.error(f"Gemini returned invalid JSON for stock: {raw}")
+            raise ValueError(f"No se pudo procesar el movimiento: {e}")

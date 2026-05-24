@@ -123,7 +123,8 @@ def handler(event, context):
 
 _CONFIRM_WORDS = {'si', 'sí', 'yes', 'confirmar', 'ok', 'dale', 'enviar'}
 _CANCEL_WORDS  = {'no', 'cancelar', 'cancel', 'nope', '0'}
-_MENU_OPTIONS  = {'1': 'factura', '2': 'cotizacion', '3': 'guia', '5': 'orden_compra'}
+_MENU_OPTIONS  = {'1': 'factura', '2': 'cotizacion', '3': 'guia', '5': 'orden_compra',
+                  '6': 'stock', '7': 'list_customers', '8': 'list_products'}
 _EXAMPLES_MENU = {'4.1', '4.2', '4.3', '4.4'}
 
 MENU_TEXT = (
@@ -132,7 +133,10 @@ MENU_TEXT = (
     "2️⃣  Cotización\n"
     "3️⃣  Guía de Remisión\n"
     "4️⃣  Ver ejemplos\n"
-    "5️⃣  Orden de Compra\n\n"
+    "5️⃣  Orden de Compra\n"
+    "6️⃣  Movimiento de Stock\n"
+    "7️⃣  Lista de Clientes\n"
+    "8️⃣  Lista de Productos\n\n"
     "Responde con el número o envía directamente los datos.\n"
     "Escribe *0* en cualquier momento para cancelar."
 )
@@ -258,10 +262,31 @@ def _dispatch(phone, text, session, sessions, wa, config):
         _handle_example(phone, text_lower, wa)
         return
 
+    # Lists — stateless, work from any state
+    if text_lower == '7':
+        _handle_list_customers(phone, wa)
+        return
+    if text_lower == '8':
+        _handle_list_products(phone, wa)
+        return
+
     # Idle: show menu or detect doc type from first message
     if session.state == 'idle':
         if text_lower in _MENU_OPTIONS:
-            session.doc_type = _MENU_OPTIONS[text_lower]
+            selected = _MENU_OPTIONS[text_lower]
+            if selected == 'stock':
+                session.state = 'stock_collecting'
+                sessions.save(session)
+                wa.send_text(phone,
+                    "📦 *Movimiento de Stock*\n\n"
+                    "Envíame los datos del movimiento. Ejemplos:\n"
+                    "• _Ingresé 5000 KG de Potasa Caustica, OC-2026-0001_\n"
+                    "• _Recibí 1000 KG TRIPOLIFOSFATO DE SODIO, ref factura F001-123_\n"
+                    "• _Salida de 200 KG Ácido Acético por venta_\n\n"
+                    "_Escribe *0* para cancelar._"
+                )
+                return
+            session.doc_type = selected
             session.state = 'collecting'
             sessions.save(session)
             wa.send_text(phone, f"*{session.doc_type.capitalize()}* seleccionada ✅\nEnvíame los datos del cliente y productos.")
@@ -319,6 +344,284 @@ def _dispatch(phone, text, session, sessions, wa, config):
             sessions.clear(phone)
             wa.send_text(phone, "Entendido, no se enviará el PDF. ✅")
 
+    elif session.state == 'stock_collecting':
+        _handle_stock_collecting(phone, text, session, sessions, wa, config)
+
+    elif session.state == 'stock_confirming':
+        if text_lower in _CONFIRM_WORDS:
+            _handle_stock_submit(phone, session, sessions, wa, config)
+        else:
+            sessions.clear(phone)
+            wa.send_text(phone, "Movimiento cancelado. ✅\n\n" + MENU_TEXT)
+
+
+# ---------------------------------------------------------------------------
+# List handlers (stateless — respond immediately, no session change)
+# ---------------------------------------------------------------------------
+
+def _handle_list_customers(phone, wa):
+    try:
+        pos = PosApiClient('', '')
+        customers = pos.list_customers()
+    except Exception as e:
+        logger.error(f"list_customers error: {e}")
+        wa.send_text(phone, "❌ No se pudo obtener la lista de clientes.")
+        return
+
+    if not customers:
+        wa.send_text(phone, "No hay clientes registrados aún.")
+        return
+
+    customers = sorted(customers, key=lambda c: c.get('name', ''))
+    sep = "─────────────────────"
+    lines = [f"👥 *CLIENTES REGISTRADOS ({len(customers)})*", sep]
+    for i, c in enumerate(customers, 1):
+        name  = c.get('name', '-')
+        ruc   = c.get('documentNumber', '')
+        email = c.get('email', '')
+        line  = f"*{i}. {name}*"
+        if ruc:
+            line += f"\n   RUC: {ruc}"
+        if email:
+            line += f"\n   ✉️ {email}"
+        lines.append(line)
+
+    wa.send_text(phone, '\n'.join(lines))
+
+
+def _handle_list_products(phone, wa):
+    try:
+        pos = PosApiClient('', '')
+        products = pos.list_products()
+    except Exception as e:
+        logger.error(f"list_products error: {e}")
+        wa.send_text(phone, "❌ No se pudo obtener la lista de productos.")
+        return
+
+    if not products:
+        wa.send_text(phone, "No hay productos registrados aún.")
+        return
+
+    products = sorted(products, key=lambda p: p.get('sku', ''))
+    sep = "─────────────────────"
+
+    # Split into batches of 50 to stay within WhatsApp message limits
+    batch_size = 50
+    total = len(products)
+    batches = [products[i:i + batch_size] for i in range(0, total, batch_size)]
+
+    for batch_idx, batch in enumerate(batches):
+        part_label = f" (parte {batch_idx + 1}/{len(batches)})" if len(batches) > 1 else ""
+        lines = [f"📦 *PRODUCTOS REGISTRADOS ({total}){part_label}*", sep]
+        for p in batch:
+            sku   = p.get('sku', '-')
+            name  = p.get('name', '-')
+            price = p.get('basePrice')
+            unit  = p.get('unit', 'kg')
+            meta  = p.get('metadata') or {}
+            pen_only = meta.get('precio_en_soles', False)
+
+            if pen_only:
+                price_str = "precio en S/."
+            elif price and price > 0.01:
+                price_str = f"${price:g}/{unit}"
+            else:
+                price_str = "sin precio USD"
+
+            lines.append(f"*[{sku}]* {name}\n   {price_str}")
+
+        wa.send_text(phone, '\n'.join(lines))
+
+
+# ---------------------------------------------------------------------------
+# Customer auto-fill helper
+# ---------------------------------------------------------------------------
+
+def _autofill_customer_from_db(extracted: dict, missing: list):
+    """
+    If customer name is known but RUC/email is in missing_fields,
+    try a DB lookup and merge found data in-place so the user isn't asked for it.
+    """
+    cust = extracted.get('customer', {})
+    name = cust.get('name')
+    if not name:
+        return
+    needs_ruc   = any(f in missing for f in ('customer_ruc', 'customer_doc'))
+    needs_email = 'customer_email' in missing
+    if not needs_ruc and not needs_email:
+        return
+
+    try:
+        pos = PosApiClient('', '')
+        db = pos.search_customer(name)
+        if not db:
+            return
+
+        doc_number = db.get('documentNumber')
+        doc_type   = db.get('documentType', '')
+        email      = db.get('email')
+        address    = db.get('address')
+
+        if needs_ruc and doc_number:
+            if doc_type == 'RUC':
+                cust['ruc'] = doc_number
+                for f in ('customer_ruc', 'customer_doc'):
+                    if f in missing:
+                        missing.remove(f)
+            elif doc_type == 'DNI':
+                cust['dni'] = doc_number
+                if 'customer_doc' in missing:
+                    missing.remove('customer_doc')
+
+        if needs_email and email:
+            cust['email'] = email
+            if 'customer_email' in missing:
+                missing.remove('customer_email')
+
+        if address and not cust.get('address'):
+            cust['address'] = address
+
+        logger.info(f"Auto-filled customer from DB: {name} → RUC={cust.get('ruc')} email={cust.get('email')}")
+
+    except Exception as e:
+        logger.warning(f"Customer DB auto-fill failed for '{name}': {e}")
+
+
+# ---------------------------------------------------------------------------
+# Stock movement flow
+# ---------------------------------------------------------------------------
+
+_MOVEMENT_TYPE_LABELS = {
+    'entry':      'Ingreso',
+    'exit':       'Salida',
+    'adjustment': 'Ajuste',
+}
+_REASON_LABELS = {
+    'purchase':   'Compra',
+    'return':     'Devolución',
+    'initial':    'Stock inicial',
+    'adjustment': 'Ajuste',
+    'sale':       'Venta',
+    'damage':     'Daño',
+    'expired':    'Vencido',
+    'correction': 'Corrección',
+}
+
+
+def _handle_stock_collecting(phone, text, session, sessions, wa, config):
+    session.add_message(text)
+    session.state = 'stock_collecting'
+
+    gemini = GeminiClient(config['gemini_api_key'])
+    try:
+        extracted = gemini.extract_stock_movement(session.messages)
+    except Exception as e:
+        logger.error(f"Gemini stock extraction failed: {e}")
+        wa.send_text(phone, "No pude entender el movimiento. ¿Puedes darme más detalles?")
+        sessions.save(session)
+        return
+
+    session.extracted = extracted
+    missing = extracted.get('missing_fields', [])
+
+    if missing:
+        lines = ["⚠️ *Falta información:*"]
+        if 'product_name' in missing:
+            lines.append("  • 📦 Nombre o SKU del producto")
+        if 'quantity' in missing:
+            lines.append("  • 🔢 Cantidad")
+        lines.append("\nPor favor envíame los datos que faltan.\n_Escribe *0* para cancelar._")
+        wa.send_text(phone, '\n'.join(lines))
+        sessions.save(session)
+        return
+
+    # All data present — show preview
+    session.state = 'stock_confirming'
+    sessions.save(session)
+
+    mv_type  = extracted.get('movement_type', 'entry')
+    reason   = extracted.get('reason', 'purchase')
+    product  = extracted.get('product_name') or extracted.get('sku', '?')
+    qty      = extracted.get('quantity', 0)
+    unit     = extracted.get('unit', 'KG')
+    ref      = extracted.get('reference')
+    notes    = extracted.get('notes')
+    sku      = extracted.get('sku')
+
+    sep   = "─────────────────────"
+    emoji = "📥" if mv_type == 'entry' else ("📤" if mv_type == 'exit' else "🔄")
+    lines = [
+        f"*{emoji} {_MOVEMENT_TYPE_LABELS.get(mv_type, mv_type).upper()} DE STOCK*",
+        sep,
+        f"📦 *{product.upper()}*",
+    ]
+    if sku:
+        lines.append(f"   SKU: {sku}")
+    lines.append(f"🔢 Cantidad: *{qty:g} {unit}*")
+    lines.append(f"📋 Motivo: {_REASON_LABELS.get(reason, reason)}")
+    if ref:
+        lines.append(f"🔖 Referencia: {ref}")
+    if notes:
+        lines.append(f"📝 Obs: {notes}")
+    lines += [sep, "¿Confirmar movimiento? Responde *sí* o *no*\n_Escribe *0* para cancelar._"]
+
+    wa.send_text(phone, '\n'.join(lines))
+
+
+def _handle_stock_submit(phone, session, sessions, wa, config):
+    extracted = session.extracted
+    mv_type   = extracted.get('movement_type', 'entry')
+    product   = extracted.get('product_name') or ''
+    sku       = extracted.get('sku')
+    quantity  = float(extracted.get('quantity', 0))
+    reason    = extracted.get('reason', 'purchase')
+    reference = extracted.get('reference')
+    notes     = extracted.get('notes')
+
+    wa.send_text(phone, "⏳ Registrando movimiento...")
+
+    try:
+        pos = PosApiClient('', '')
+
+        # Find product in DB
+        db_product = None
+        if sku:
+            db_product = pos.search_product_by_sku(sku)
+        if not db_product and product:
+            db_product = pos.search_product(product)
+
+        if not db_product:
+            wa.send_text(phone,
+                f"❌ No encontré el producto *{sku or product}* en el sistema.\n"
+                "Verifica el nombre o SKU e intenta de nuevo.")
+            sessions.clear(phone)
+            return
+
+        product_id   = db_product.get('productId')
+        product_name = db_product.get('name', product)
+
+        if mv_type == 'exit':
+            result = pos.create_stock_exit(product_id, quantity, reason, reference, notes)
+        else:
+            result = pos.create_stock_entry(product_id, quantity, reason, reference, notes)
+
+        mv_id  = (result.get('data') or result).get('movementId', '')
+        emoji  = "📥" if mv_type != 'exit' else "📤"
+        action = _MOVEMENT_TYPE_LABELS.get(mv_type, mv_type)
+        wa.send_text(phone,
+            f"✅ {emoji} *{action}* registrada correctamente.\n"
+            f"📦 {product_name}\n"
+            f"🔢 {quantity:g} {extracted.get('unit','KG')}\n"
+            + (f"🔖 Ref: {reference}\n" if reference else "")
+            + (f"ID: {mv_id}" if mv_id else "")
+        )
+
+    except Exception as e:
+        logger.exception(f"Stock movement error: {e}")
+        wa.send_text(phone, f"❌ Error al registrar el movimiento: {e}")
+    finally:
+        sessions.clear(phone)
+
 
 # ---------------------------------------------------------------------------
 # State: collecting
@@ -345,6 +648,9 @@ def _handle_collecting(phone, text, session, sessions, wa, config):
 
     session.extracted = extracted
     missing = extracted.get('missing_fields', [])
+
+    # Customer auto-fill: if name is known but RUC/email missing, try DB lookup
+    _autofill_customer_from_db(extracted, missing)
 
     # Remove doc_type from missing if already set by user
     if session.doc_type and 'doc_type' in missing:

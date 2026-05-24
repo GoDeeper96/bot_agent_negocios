@@ -23,9 +23,11 @@ logger = logging.getLogger(__name__)
 
 # Lambda function names — resolved from env or defaults
 _STAGE = os.environ.get('STAGE', 'dev')
-_CUSTOMER_FN = f"fourdist-{_STAGE}-CustomerFunction-2Tfdyup6KDnx"
-_SALES_FN    = f"fourdist-{_STAGE}-SalesFunction-P80nMbBhr9lC"
-_SETTINGS_FN = f"fourdist-{_STAGE}-SettingsFunction-hXhU81XQ3dWZ"
+_CUSTOMER_FN  = f"fourdist-{_STAGE}-CustomerFunction-2Tfdyup6KDnx"
+_SALES_FN     = f"fourdist-{_STAGE}-SalesFunction-P80nMbBhr9lC"
+_SETTINGS_FN  = f"fourdist-{_STAGE}-SettingsFunction-hXhU81XQ3dWZ"
+_PRODUCT_FN   = f"fourdist-{_STAGE}-ProductFunction-BZOAJovsGxoA"
+_INVENTORY_FN = f"fourdist-{_STAGE}-InventoryFunction-WJW7lIGuog4p"
 
 
 def _extract_list(resp: dict, key: str) -> list:
@@ -161,6 +163,89 @@ class PosApiClient:
         resp = _invoke(_CUSTOMER_FN, "POST", "/core/customers",
                        body=payload, auth_user=self._auth)
         logger.info(f"create_customer raw response: {str(resp)[:300]}")
+        return _extract_item(resp)
+
+    # ------------------------------------------------------------------
+    # Products
+    # ------------------------------------------------------------------
+
+    def search_product(self, query: str) -> Optional[dict]:
+        """Search product by name or SKU. Returns first match or None."""
+        resp = _invoke(_PRODUCT_FN, "GET", "/core/products",
+                       query={"search": query, "limit": "5"},
+                       auth_user=self._auth)
+        logger.info(f"search_product raw response: {str(resp)[:300]}")
+        products = _extract_list(resp, "products")
+        if not products:
+            return None
+        return products[0]
+
+    def list_customers(self) -> list:
+        """Return all active customers for this company."""
+        resp = _invoke(_CUSTOMER_FN, "GET", "/core/customers",
+                       query={"limit": "100", "companyId": self._company_id},
+                       auth_user=self._auth)
+        customers = _extract_list(resp, "customers")
+        return [c for c in customers if c.get("isActive") is not False]
+
+    def list_products(self) -> list:
+        """Return all active products for this enterprise."""
+        resp = _invoke(_PRODUCT_FN, "GET", "/core/products",
+                       query={"limit": "200"},
+                       auth_user=self._auth)
+        products = _extract_list(resp, "products")
+        return [p for p in products if p.get("isActive") is not False]
+
+    def search_product_by_sku(self, sku: str) -> Optional[dict]:
+        """Look up product by exact SKU."""
+        resp = _invoke(_PRODUCT_FN, "GET", "/core/products",
+                       query={"sku": sku, "limit": "1"},
+                       auth_user=self._auth)
+        products = _extract_list(resp, "products")
+        return products[0] if products else None
+
+    # ------------------------------------------------------------------
+    # Stock movements
+    # ------------------------------------------------------------------
+
+    def create_stock_entry(self, product_id: str, quantity: float,
+                           reason: str = "purchase", reference: str = None,
+                           notes: str = None, unit_cost: float = None) -> dict:
+        """Record a stock entry (ingreso). reason: purchase|return|adjustment|initial"""
+        payload = {
+            "productId":   product_id,
+            "warehouseId": "warehouse-lichan",
+            "quantity":    quantity,
+            "reason":      reason,
+        }
+        if reference:
+            payload["reference"] = reference
+        if notes:
+            payload["notes"] = notes
+        if unit_cost is not None:
+            payload["unitCost"] = unit_cost
+        resp = _invoke(_INVENTORY_FN, "POST", "/core/stock-movements/entry",
+                       body=payload, auth_user=self._auth)
+        logger.info(f"create_stock_entry raw response: {str(resp)[:300]}")
+        return _extract_item(resp)
+
+    def create_stock_exit(self, product_id: str, quantity: float,
+                          reason: str = "sale", reference: str = None,
+                          notes: str = None) -> dict:
+        """Record a stock exit (salida). reason: sale|damage|expired|correction"""
+        payload = {
+            "productId":   product_id,
+            "warehouseId": "warehouse-lichan",
+            "quantity":    quantity,
+            "reason":      reason,
+        }
+        if reference:
+            payload["reference"] = reference
+        if notes:
+            payload["notes"] = notes
+        resp = _invoke(_INVENTORY_FN, "POST", "/core/stock-movements/exit",
+                       body=payload, auth_user=self._auth)
+        logger.info(f"create_stock_exit raw response: {str(resp)[:300]}")
         return _extract_item(resp)
 
     # ------------------------------------------------------------------
