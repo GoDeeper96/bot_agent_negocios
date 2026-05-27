@@ -372,21 +372,27 @@ def _handle_list_customers(phone, wa):
         wa.send_text(phone, "No hay clientes registrados aún.")
         return
 
-    customers = sorted(customers, key=lambda c: c.get('name', ''))
-    sep = "─────────────────────"
-    lines = [f"👥 *CLIENTES REGISTRADOS ({len(customers)})*", sep]
-    for i, c in enumerate(customers, 1):
-        name  = c.get('name', '-')
-        ruc   = c.get('documentNumber', '')
-        email = c.get('email', '')
-        line  = f"*{i}. {name}*"
-        if ruc:
-            line += f"\n   RUC: {ruc}"
-        if email:
-            line += f"\n   ✉️ {email}"
-        lines.append(line)
+    customers = sorted(customers, key=lambda c: (c.get('name') or ''))
 
-    wa.send_text(phone, '\n'.join(lines))
+    rows = []
+    for i, c in enumerate(customers, 1):
+        name  = (c.get('name') or '-')[:28]
+        ruc   = (c.get('documentNumber') or '-')
+        email = (c.get('email') or '')
+        rows.append((str(i), name, ruc, email))
+
+    w_n    = max(len(r[0]) for r in rows)
+    w_name = max(len(r[1]) for r in rows)
+    w_ruc  = max(len(r[2]) for r in rows)
+
+    hdr = f"{'#':<{w_n}}  {'NOMBRE':<{w_name}}  {'RUC':<{w_ruc}}  EMAIL"
+    sep = f"{'─'*w_n}  {'─'*w_name}  {'─'*w_ruc}  {'─'*24}"
+    table_lines = [hdr, sep] + [
+        f"{n:<{w_n}}  {name:<{w_name}}  {ruc:<{w_ruc}}  {email}"
+        for n, name, ruc, email in rows
+    ]
+    msg = f"👥 *CLIENTES REGISTRADOS ({len(customers)})*\n```\n" + "\n".join(table_lines) + "\n```"
+    wa.send_text(phone, msg)
 
 
 def _handle_list_products(phone, wa):
@@ -402,35 +408,42 @@ def _handle_list_products(phone, wa):
         wa.send_text(phone, "No hay productos registrados aún.")
         return
 
-    products = sorted(products, key=lambda p: p.get('sku', ''))
-    sep = "─────────────────────"
+    products = sorted(products, key=lambda p: (p.get('sku') or ''))
 
-    # Split into batches of 50 to stay within WhatsApp message limits
     batch_size = 50
     total = len(products)
     batches = [products[i:i + batch_size] for i in range(0, total, batch_size)]
 
     for batch_idx, batch in enumerate(batches):
-        part_label = f" (parte {batch_idx + 1}/{len(batches)})" if len(batches) > 1 else ""
-        lines = [f"📦 *PRODUCTOS REGISTRADOS ({total}){part_label}*", sep]
+        rows = []
         for p in batch:
-            sku   = p.get('sku', '-')
-            name  = p.get('name', '-')
+            sku   = (p.get('sku') or '-')[:12]
+            name  = (p.get('name') or '-')[:32]
             price = p.get('basePrice')
-            unit  = p.get('unit', 'kg')
+            unit  = (p.get('unit') or 'kg').lower()
             meta  = p.get('metadata') or {}
             pen_only = meta.get('precio_en_soles', False)
-
             if pen_only:
-                price_str = "precio en S/."
+                price_str = "S/. consultar"
             elif price and price > 0.01:
                 price_str = f"${price:g}/{unit}"
             else:
-                price_str = "sin precio USD"
+                price_str = "consultar"
+            rows.append((sku, name, price_str))
 
-            lines.append(f"*[{sku}]* {name}\n   {price_str}")
+        w_sku  = max(len(r[0]) for r in rows)
+        w_name = max(len(r[1]) for r in rows)
 
-        wa.send_text(phone, '\n'.join(lines))
+        hdr = f"{'SKU':<{w_sku}}  {'NOMBRE':<{w_name}}  PRECIO"
+        sep = f"{'─'*w_sku}  {'─'*w_name}  {'─'*14}"
+        table_lines = [hdr, sep] + [
+            f"{sku:<{w_sku}}  {name:<{w_name}}  {price}"
+            for sku, name, price in rows
+        ]
+
+        part_label = f" ({batch_idx+1}/{len(batches)})" if len(batches) > 1 else ""
+        msg = f"📦 *PRODUCTOS ({total}){part_label}*\n```\n" + "\n".join(table_lines) + "\n```"
+        wa.send_text(phone, msg)
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +467,27 @@ def _autofill_customer_from_db(extracted: dict, missing: list):
     try:
         pos = PosApiClient('', '')
         db = pos.search_customer(name)
+
+        # Fallback: search API misses some customers — scan full list and match locally
+        if not db:
+            import re
+            def _normalize(s):
+                # Strip punctuation and extra spaces for fuzzy comparison
+                return re.sub(r'[^a-z0-9 ]', '', s.lower()).split()
+
+            name_words = _normalize(name)
+            all_customers = pos.list_customers()
+            best, best_score = None, 0
+            for c in all_customers:
+                db_words = _normalize(c.get('name') or '')
+                # Count how many words from the query appear in the DB name
+                score = sum(1 for w in name_words if w in db_words)
+                if score > best_score:
+                    best, best_score = c, score
+            # Require at least half the query words to match
+            if best and best_score >= max(1, len(name_words) // 2):
+                db = best
+
         if not db:
             return
 
