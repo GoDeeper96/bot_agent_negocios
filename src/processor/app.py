@@ -467,27 +467,6 @@ def _autofill_customer_from_db(extracted: dict, missing: list):
     try:
         pos = PosApiClient('', '')
         db = pos.search_customer(name)
-
-        # Fallback: search API misses some customers — scan full list and match locally
-        if not db:
-            import re
-            def _normalize(s):
-                # Strip punctuation and extra spaces for fuzzy comparison
-                return re.sub(r'[^a-z0-9 ]', '', s.lower()).split()
-
-            name_words = _normalize(name)
-            all_customers = pos.list_customers()
-            best, best_score = None, 0
-            for c in all_customers:
-                db_words = _normalize(c.get('name') or '')
-                # Count how many words from the query appear in the DB name
-                score = sum(1 for w in name_words if w in db_words)
-                if score > best_score:
-                    best, best_score = c, score
-            # Require at least half the query words to match
-            if best and best_score >= max(1, len(name_words) // 2):
-                db = best
-
         if not db:
             return
 

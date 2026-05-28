@@ -139,14 +139,33 @@ class PosApiClient:
     # ------------------------------------------------------------------
 
     def search_customer(self, name: str) -> Optional[dict]:
+        import re
+
         resp = _invoke(_CUSTOMER_FN, "GET", "/core/customers",
                        query={"search": name, "limit": "5"},
                        auth_user=self._auth)
         logger.info(f"search_customer raw response: {str(resp)[:300]}")
         customers = _extract_list(resp, "customers")
-        if not customers:
-            return None
-        return customers[0]
+        if customers:
+            return customers[0]
+
+        # Fallback: API search misses some names — fetch all and match locally
+        # Normalise to lowercase alphanum words (handles "EXIQUIM SAC" vs "EXIQUIM S.A.C")
+        def _norm(s):
+            return re.sub(r'[^a-z0-9 ]', '', s.lower()).split()
+
+        name_words = _norm(name)
+        all_customers = self.list_customers()
+        best, best_score = None, 0
+        for c in all_customers:
+            db_words = _norm(c.get('name') or '')
+            score = sum(1 for w in name_words if w in db_words)
+            if score > best_score:
+                best, best_score = c, score
+        if best and best_score >= max(1, len(name_words) // 2):
+            logger.info(f"search_customer fallback matched '{name}' -> '{best.get('name')}'")
+            return best
+        return None
 
     def create_customer(self, name: str, document_number: str, document_type: str,
                         email: str = None, phone: str = None) -> dict:
