@@ -89,7 +89,7 @@ _FACTURA_HTML_TMPL = """\
 <p>Se adjunta {doc_label} <strong>{full_number}</strong>.{pdf_link_line}</p>
 <p>Saludos cordiales / Best regards</p>
 <br>
-<img src="cid:logo_lichan" alt="{company}" style="max-width:220px;"><br><br>
+<img src="cid:logo_lichan" alt="{company}" width="350" style="display:block;width:350px;"><br><br>
 <strong>{company}</strong><br>
 RUC: {ruc}<br>
 {address}<br>
@@ -340,7 +340,7 @@ Quedamos atentos a su confirmación para generar la orden correspondiente.</p>
 
 <p>Saludos cordiales / Best regards</p>
 <br>
-<img src="cid:logo_lichan" alt="{_COMPANY_NAME}" style="max-width:220px;"><br><br>
+<img src="cid:logo_lichan" alt="{_COMPANY_NAME}" width="350" style="display:block;width:350px;"><br><br>
 <strong>{_COMPANY_NAME}</strong><br>
 RUC: {_COMPANY_RUC}<br>
 {_COMPANY_ADDR}<br>
@@ -442,7 +442,7 @@ Por favor confirmar recepción y fecha de despacho.</p>
 <p style="margin-top:24px;">Quedo atento a su confirmación.</p>
 <p>Saludos cordiales / Best regards</p>
 <br>
-<img src="cid:logo_lichan" alt="{_COMPANY_NAME}" style="max-width:220px;"><br><br>
+<img src="cid:logo_lichan" alt="{_COMPANY_NAME}" width="350" style="display:block;width:350px;"><br><br>
 <strong>{_COMPANY_NAME}</strong><br>
 RUC: {_COMPANY_RUC}<br>
 {_COMPANY_ADDR}<br>

@@ -1,0 +1,11 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #111b21;
+  color: #e9edef;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+#root { height: 100dvh; display: flex; flex-direction: column; }

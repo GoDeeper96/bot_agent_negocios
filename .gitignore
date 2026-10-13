@@ -46,3 +46,19 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Business data & one-off scripts (contain customer info) — never commit
+node_modules/
+send_*.py
+build_*.py
+edit_*.py
+*_pdf_export*.py
+export_pdf_final.*
+inspect_xlsx.py
+transcribe_audio.py
+*.xlsx
+*.csv
+*.eml
+*.ogg
+*.jpg
+*.jpeg

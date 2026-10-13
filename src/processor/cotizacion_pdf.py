@@ -77,9 +77,9 @@ class _CotizacionPDF(FPDF):
                 align="C")
 
 
-def generate_cotizacion_pdf(extracted: dict, cot_number: str) -> bytes:
+def generate_cotizacion_pdf(extracted: dict, cot_number: str, date_str: str = None) -> bytes:
     """Return PDF bytes for the given cotización data."""
-    date_str  = datetime.now().strftime("%d/%m/%Y")
+    date_str  = date_str or datetime.now().strftime("%d/%m/%Y")
     validity  = extracted.get("validity_days", 15)
     currency  = extracted.get("currency", "PEN")
     symbol    = "$" if currency == "USD" else "S/."
