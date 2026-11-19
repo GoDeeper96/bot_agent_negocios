@@ -862,7 +862,7 @@ def _handle_submit(phone, session, sessions, wa, config):
 # ---------------------------------------------------------------------------
 
 _GUIA_SERIE   = "T001"
-_COMPANY_ADDR = "AV. GUILLERMO BILLINGHURST NRO. 1089 URB. SAN JUAN ZN. D- SAN JUAN DE MIRAFLORES - LIMA - LIMA"
+_COMPANY_ADDR = "AV. GUILLERMO BILLINGHURST NRO. 1089 OFICINA 203 URB. SAN JUAN ZN. D- SAN JUAN DE MIRAFLORES - LIMA - LIMA"
 
 
 def _next_guia_number(ssm_prefix: str) -> str:

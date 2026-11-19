@@ -62,3 +62,7 @@ transcribe_audio.py
 *.ogg
 *.jpg
 *.jpeg
+
+# Cotizaciones (datos de clientes) y PDFs generados
+cotizaciones/
+out/

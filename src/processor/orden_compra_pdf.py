@@ -60,7 +60,7 @@ def _amount_in_words(total: float, currency: str) -> str:
 # ── Constants ──────────────────────────────────────────────────────────────
 COMPANY_NAME  = "NEGOCIOS MULTIPLES LICHAN S.A.C."
 COMPANY_RUC   = "20607960225"
-COMPANY_ADDR  = "AV. GUILLERMO BILLINGHURST NRO. 1089 URB. SAN JUAN ZN. D- SAN JUAN DE MIRAFLORES - LIMA - LIMA"
+COMPANY_ADDR  = "AV. GUILLERMO BILLINGHURST NRO. 1089 OFICINA 203 URB. SAN JUAN ZN. D- SAN JUAN DE MIRAFLORES - LIMA - LIMA"
 COMPANY_TEL   = "960113935"
 COMPANY_EMAIL = "negocios.lichan@outlook.com"
 

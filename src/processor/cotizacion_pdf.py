@@ -18,7 +18,7 @@ def _fmt_price(price: float) -> str:
 
 COMPANY_NAME  = "NEGOCIOS MULTIPLES LICHAN S.A.C."
 COMPANY_RUC   = "20607960225"
-COMPANY_ADDR  = "AV. GUILLERMO BILLINGHURST NRO. 1089 URB. SAN JUAN ZN. D- SAN JUAN DE MIRAFLORES - LIMA - LIMA"
+COMPANY_ADDR  = "AV. GUILLERMO BILLINGHURST NRO. 1089 OFICINA 203 URB. SAN JUAN ZN. D- SAN JUAN DE MIRAFLORES - LIMA - LIMA"
 COMPANY_TEL   = "960113935"
 COMPANY_EMAIL = "negocios.lichan@outlook.com"
 
@@ -52,7 +52,7 @@ class _CotizacionPDF(FPDF):
         self.set_x(60)
         self.cell(0, 4.5, f"RUC: {COMPANY_RUC}", ln=True)
         self.set_x(60)
-        self.cell(0, 4.5, COMPANY_ADDR, ln=True)
+        self.multi_cell(135, 4, COMPANY_ADDR, align="L")  # long address wraps to 2 lines
         self.set_x(60)
         self.cell(0, 4.5, f"Telf: {COMPANY_TEL}  |  {COMPANY_EMAIL}", ln=True)
 
@@ -156,11 +156,25 @@ def generate_cotizacion_pdf(extracted: dict, cot_number: str, date_str: str = No
         pdf.set_fill_color(250, 250, 250) if shade else pdf.set_fill_color(255, 255, 255)
         pdf.set_font("Helvetica", "", 8)
 
-        row_h = 7
-        vals  = [desc[:40], pres[:22], f"{qty:g} {unit}", _fmt_price(price), f"{line:,.2f}"]
-        for w, v, a in zip(col, vals, aligns):
-            pdf.cell(w, row_h, v, border=1, fill=shade, align=a)
-        pdf.ln()
+        # Wrap long text inside its cell; row grows to the tallest cell
+        line_h = 4.5
+        vals   = [desc, pres, f"{qty:g} {unit}", _fmt_price(price), f"{line:,.2f}"]
+        n_lines = [
+            len(pdf.multi_cell(w, line_h, v, dry_run=True, output="LINES", padding=(0, 1)))
+            for w, v in zip(col, vals)
+        ]
+        row_h = max(7, max(n_lines) * line_h + 2)
+
+        if pdf.get_y() + row_h > pdf.page_break_trigger:
+            pdf.add_page()
+        x0, y0 = pdf.get_x(), pdf.get_y()
+        x = x0
+        for w, v, a, n in zip(col, vals, aligns, n_lines):
+            pdf.rect(x, y0, w, row_h, style="DF" if shade else "D")
+            pdf.set_xy(x, y0 + (row_h - n * line_h) / 2)
+            pdf.multi_cell(w, line_h, v, align=a, padding=(0, 1))
+            x += w
+        pdf.set_xy(x0, y0 + row_h)
         shade = not shade
 
     # ── Totals ─────────────────────────────────────────────
